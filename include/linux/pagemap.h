@@ -248,7 +248,7 @@ static inline struct page *page_cache_alloc_readahead(struct address_space *x)
 #endif
 }
 
-typedef int filler_t(void *, struct page *);
+typedef int filler_t(struct file *, struct page *);
 
 pgoff_t page_cache_next_hole(struct address_space *mapping,
 			     pgoff_t index, unsigned long max_scan);
@@ -389,7 +389,7 @@ extern int read_cache_pages(struct address_space *mapping,
 static inline struct page *read_mapping_page(struct address_space *mapping,
 				pgoff_t index, void *data)
 {
-	filler_t *filler = (filler_t *)mapping->a_ops->readpage;
+	filler_t *filler = mapping->a_ops->readpage;
 	return read_cache_page(mapping, index, filler, data);
 }
 
