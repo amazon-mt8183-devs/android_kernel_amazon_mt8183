@@ -409,6 +409,3 @@ config MTK_NET_RFC7217
 	default n
 	---help---
 	  This config helps to enable/disable stable privacy IPv6 address
-
-config HAVE_EBPF_JIT
-	bool
