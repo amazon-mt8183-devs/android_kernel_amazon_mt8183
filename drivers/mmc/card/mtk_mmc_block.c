@@ -128,10 +128,12 @@ static void mt_bio_init_ctx(struct mt_bio_context *ctx, struct task_struct *thre
 	struct request_queue *q)
 {
 	int i;
+	char tmp[TASK_COMM_LEN];
 
 	ctx->q = q;
 	ctx->pid = task_pid_nr(thread);
-	get_task_comm(ctx->comm, thread);
+	get_task_comm(tmp, thread);
+	snprintf(ctx->comm, TASK_COMM_LEN, "%s", tmp);
 	ctx->qid = get_qid_by_name(ctx->comm);
 	spin_lock_init(&ctx->lock);
 	ctx->id = get_ctxid_by_name(ctx->comm);
