@@ -297,11 +297,11 @@ static long _map_user_pages(struct MTIOMMU_PIN_RANGE_T *pinRange,
 #if defined(CONFIG_MTEE_CMA_SECURE_MEMORY)
 		res = get_user_pages_durable(current, current->mm,
 					uaddr, nr_pages,
-					write, 0,/* don't force */
+					write ? FOLL_WRITE : 0,
 					pages, NULL);
 #else
 		res = get_user_pages(current, current->mm, uaddr, nr_pages,
-					write, 0,/* don't force */
+					write ? FOLL_WRITE : 0,
 					pages, NULL);
 #endif
 	} else {
