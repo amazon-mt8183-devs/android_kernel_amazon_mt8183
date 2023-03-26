@@ -65,6 +65,8 @@
 #define SONY_FF_SUPPORT (SIXAXIS_CONTROLLER | DUALSHOCK4_CONTROLLER |\
 				MOTION_CONTROLLER)
 
+#define SONY_SKIP_BT_FEATURE_REPORT (DUALSHOCK4_CONTROLLER_BT)
+
 #define MAX_LEDS 4
 
 /*
@@ -1960,9 +1962,15 @@ static int sony_play_effect(struct input_dev *dev, void *data,
 
 static int sony_init_ff(struct sony_sc *sc)
 {
-	struct hid_input *hidinput = list_entry(sc->hdev->inputs.next,
-						struct hid_input, list);
-	struct input_dev *input_dev = hidinput->input;
+	struct hid_input *hidinput;
+	struct input_dev *input_dev;
+
+	if (list_empty(&sc->hdev->inputs)) {
+		hid_err(sc->hdev, "no inputs found\n");
+		return -ENODEV;
+	}
+	hidinput = list_entry(sc->hdev->inputs.next, struct hid_input, list);
+	input_dev = hidinput->input;
 
 	input_set_capability(input_dev, EV_FF, FF_RUMBLE);
 	return input_ff_create_memless(input_dev, NULL, sony_play_effect);
@@ -2274,6 +2282,7 @@ static int sony_probe(struct hid_device *hdev, const struct hid_device_id *id)
 	spin_lock_init(&sc->lock);
 
 	sc->quirks = quirks;
+	hid_err(hdev, "quirks=0x%x\n", quirks);
 	hid_set_drvdata(hdev, sc);
 	sc->hdev = hdev;
 
@@ -2332,7 +2341,8 @@ static int sony_probe(struct hid_device *hdev, const struct hid_device_id *id)
 		ret = sixaxis_set_operational_bt(hdev);
 		sony_init_work(sc, sixaxis_state_worker);
 	} else if (sc->quirks & DUALSHOCK4_CONTROLLER) {
-		if (sc->quirks & DUALSHOCK4_CONTROLLER_BT) {
+		if (sc->quirks & DUALSHOCK4_CONTROLLER_BT
+			&& !(sc->quirks & SONY_SKIP_BT_FEATURE_REPORT)) {
 			/*
 			 * The DualShock 4 wants output reports sent on the ctrl
 			 * endpoint when connected via Bluetooth.
@@ -2460,6 +2470,12 @@ static const struct hid_device_id sony_devices[] = {
 		.driver_data = DUALSHOCK4_CONTROLLER_USB },
 	{ HID_BLUETOOTH_DEVICE(USB_VENDOR_ID_SONY, USB_DEVICE_ID_SONY_PS4_CONTROLLER),
 		.driver_data = DUALSHOCK4_CONTROLLER_BT },
+	{ HID_USB_DEVICE(USB_VENDOR_ID_SONY, USB_DEVICE_ID_SONY_PS4_CONTROLLER_2),
+		.driver_data = DUALSHOCK4_CONTROLLER_USB },
+	{ HID_BLUETOOTH_DEVICE(USB_VENDOR_ID_SONY, USB_DEVICE_ID_SONY_PS4_CONTROLLER_2),
+		.driver_data = DUALSHOCK4_CONTROLLER_BT },
+	{ HID_USB_DEVICE(USB_VENDOR_ID_SONY, USB_DEVICE_ID_SONY_PS4_CONTROLLER_DONGLE),
+		.driver_data = DUALSHOCK4_CONTROLLER_USB },
 	{ }
 };
 MODULE_DEVICE_TABLE(hid, sony_devices);

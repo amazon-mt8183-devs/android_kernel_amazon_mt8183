@@ -249,6 +249,8 @@ static int mmc_read_ssr(struct mmc_card *card)
 	for (i = 0; i < 16; i++)
 		ssr[i] = be32_to_cpu(ssr[i]);
 
+	card->sd_speed_class = ssr[2]>>24;
+
 	/*
 	 * UNSTUFF_BITS only works with four u32s so we have to offset the
 	 * bitfield positions accordingly.
@@ -665,6 +667,8 @@ MMC_DEV_ATTR(manfid, "0x%06x\n", card->cid.manfid);
 MMC_DEV_ATTR(name, "%s\n", card->cid.prod_name);
 MMC_DEV_ATTR(oemid, "0x%04x\n", card->cid.oemid);
 MMC_DEV_ATTR(serial, "0x%08x\n", card->cid.serial);
+MMC_DEV_ATTR(timing, "%u\n", (&card->host->ios)->timing);
+MMC_DEV_ATTR(sclass, "0x%0x\n", card->sd_speed_class);
 
 
 static struct attribute *sd_std_attrs[] = {
@@ -680,6 +684,8 @@ static struct attribute *sd_std_attrs[] = {
 	&dev_attr_name.attr,
 	&dev_attr_oemid.attr,
 	&dev_attr_serial.attr,
+	&dev_attr_timing.attr,
+	&dev_attr_sclass.attr,
 	NULL,
 };
 ATTRIBUTE_GROUPS(sd_std);
@@ -916,7 +922,7 @@ static int mmc_sd_init_card(struct mmc_host *host, u32 ocr,
 {
 	struct mmc_card *card;
 	int err;
-	u32 cid[4];
+	u32 cid[4] = {0};
 	u32 rocr = 0;
 
 	BUG_ON(!host);

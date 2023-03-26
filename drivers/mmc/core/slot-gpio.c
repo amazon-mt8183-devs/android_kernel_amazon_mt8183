@@ -38,6 +38,11 @@ static irqreturn_t mmc_gpio_cd_irqt(int irq, void *dev_id)
 	host->trigger_card_event = true;
 	mmc_detect_change(host, msecs_to_jiffies(200));
 
+#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG)
+	if (host->ops->cd_irq)
+		host->ops->cd_irq(host);
+#endif
+
 	return IRQ_HANDLED;
 }
 
@@ -145,6 +150,8 @@ void mmc_gpiod_request_cd_irq(struct mmc_host *host)
 			ctx->cd_label, host);
 		if (ret < 0)
 			irq = ret;
+		else
+			enable_irq_wake(irq);
 	}
 
 	host->slot.cd_irq = irq;

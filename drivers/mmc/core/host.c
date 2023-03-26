@@ -312,6 +312,9 @@ struct mmc_host *mmc_alloc_host(int extra, struct device *dev)
 {
 	int err;
 	struct mmc_host *host;
+#ifdef CONFIG_MTK_EMMC_CQ_SUPPORT
+	int i;
+#endif
 
 	host = kzalloc(sizeof(struct mmc_host) + extra, GFP_KERNEL);
 	if (!host)
@@ -337,11 +340,18 @@ struct mmc_host *mmc_alloc_host(int extra, struct device *dev)
 	host->class_dev.parent = dev;
 	host->class_dev.class = &mmc_host_class;
 	device_initialize(&host->class_dev);
+#ifdef CONFIG_MMC_ASYNC_SUSPEND_RESUME
+	device_enable_async_suspend(&host->class_dev);
+#endif
 
 	if (mmc_gpio_alloc(host)) {
 		put_device(&host->class_dev);
 		return NULL;
 	}
+#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG)
+	INIT_DELAYED_WORK(&host->metrics_delay_work,
+				mmc_host_metrics_work);
+#endif /* CONFIG_AMAZON_METRICS_LOG || CONFIG_AMZN_METRICS_LOG */
 
 	spin_lock_init(&host->lock);
 	init_waitqueue_head(&host->wq);
@@ -361,6 +371,26 @@ struct mmc_host *mmc_alloc_host(int extra, struct device *dev)
 	host->max_req_size = PAGE_CACHE_SIZE;
 	host->max_blk_size = 512;
 	host->max_blk_count = PAGE_CACHE_SIZE / 512;
+
+#ifdef CONFIG_MTK_EMMC_CQ_SUPPORT
+	host->align_size = 4;
+
+	for (i = 0; i < EMMC_MAX_QUEUE_DEPTH; i++)
+		host->areq_que[i] = NULL;
+	atomic_set(&host->areq_cnt, 0);
+	host->areq_cur = NULL;
+	host->done_mrq = NULL;
+	host->state = 0;
+
+	INIT_LIST_HEAD(&host->cmd_que);
+	INIT_LIST_HEAD(&host->dat_que);
+	spin_lock_init(&host->cmd_que_lock);
+	spin_lock_init(&host->dat_que_lock);
+	spin_lock_init(&host->que_lock);
+
+	init_waitqueue_head(&host->cmp_que);
+	init_waitqueue_head(&host->cmdq_que);
+#endif
 
 	return host;
 }

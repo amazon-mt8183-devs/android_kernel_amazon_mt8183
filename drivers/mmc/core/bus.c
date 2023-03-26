@@ -152,12 +152,18 @@ static int mmc_bus_suspend(struct device *dev)
 
 	ret = pm_generic_suspend(dev);
 	if (ret)
-		return ret;
+		goto out;
 
 	ret = host->bus_ops->suspend(host);
-	if (ret)
+	/*
+	 * Resume subsytem when suspend failed.
+	 */
+	if (ret) {
+		pr_info("%s: error %d during suspend\n",
+			mmc_hostname(host), ret);
 		pm_generic_resume(dev);
-
+	}
+out:
 	return ret;
 }
 
@@ -351,6 +357,10 @@ int mmc_add_card(struct mmc_card *card)
 	mmc_init_context_info(card->host);
 
 	card->dev.of_node = mmc_of_find_child_device(card->host, 0);
+
+#ifdef CONFIG_MMC_ASYNC_SUSPEND_RESUME
+	device_enable_async_suspend(&card->dev);
+#endif
 
 	ret = device_add(&card->dev);
 	if (ret)

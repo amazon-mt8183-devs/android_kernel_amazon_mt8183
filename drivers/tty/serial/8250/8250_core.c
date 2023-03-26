@@ -37,6 +37,7 @@
 #include <linux/uaccess.h>
 #include <linux/pm_runtime.h>
 #include <linux/io.h>
+#include <linux/printk.h>
 #ifdef CONFIG_SPARC
 #include <linux/sunserialcore.h>
 #endif
@@ -125,6 +126,11 @@ static irqreturn_t serial8250_interrupt(int irq, void *dev_id)
 
 		up = list_entry(l, struct uart_8250_port, list);
 		port = &up->port;
+
+#ifdef CONFIG_MT_PRINTK_UART_CONSOLE
+		if (uart_console(port) && (serial_in(up, UART_LSR) & 0x01))
+			printk_disable_uart = 0;
+#endif
 
 		if (port->handle_irq(port)) {
 			handled = 1;
@@ -530,6 +536,7 @@ static void __init serial8250_isa_init_ports(void)
 		 */
 		up->mcr_mask = ~ALPHA_KLUDGE_MCR;
 		up->mcr_force = ALPHA_KLUDGE_MCR;
+		serial8250_set_defaults(up);
 	}
 
 	/* chain base port ops to support Remote Supervisor Adapter */
@@ -553,7 +560,6 @@ static void __init serial8250_isa_init_ports(void)
 		port->membase  = old_serial_port[i].iomem_base;
 		port->iotype   = old_serial_port[i].io_type;
 		port->regshift = old_serial_port[i].iomem_reg_shift;
-		serial8250_set_defaults(up);
 
 		port->irqflags |= irqflag;
 		if (serial8250_isa_config != NULL)
@@ -597,6 +603,7 @@ static void univ8250_console_write(struct console *co, const char *s,
 static int univ8250_console_setup(struct console *co, char *options)
 {
 	struct uart_port *port;
+	int retval;
 
 	/*
 	 * Check whether an invalid uart number has been specified, and
@@ -609,7 +616,10 @@ static int univ8250_console_setup(struct console *co, char *options)
 	/* link port to console */
 	port->cons = co;
 
-	return serial8250_console_setup(port, options, false);
+	retval = serial8250_console_setup(port, options, false);
+	if (retval != 0)
+		port->cons = NULL;
+	return retval;
 }
 
 /**
@@ -754,7 +764,7 @@ void serial8250_suspend_port(int line)
 	struct uart_port *port = &up->port;
 
 	if (!console_suspend_enabled && uart_console(port) &&
-	    port->type != PORT_8250) {
+	    port->type != PORT_8250 && port->type != PORT_16650V2) {
 		unsigned char canary = 0xa5;
 		serial_out(up, UART_SCR, canary);
 		if (serial_in(up, UART_SCR) == canary)

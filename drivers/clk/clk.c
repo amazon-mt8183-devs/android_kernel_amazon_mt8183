@@ -23,7 +23,9 @@
 #include <linux/init.h>
 #include <linux/sched.h>
 #include <linux/clkdev.h>
-
+#ifdef CONFIG_AMAZON_DEBUG_CLK
+#include <linux/suspend.h>
+#endif
 #include "clk.h"
 
 static DEFINE_SPINLOCK(enable_lock);
@@ -71,6 +73,9 @@ struct clk_core {
 #ifdef CONFIG_DEBUG_FS
 	struct dentry		*dentry;
 	struct hlist_node	debug_node;
+#endif
+#ifdef CONFIG_AMAZON_DEBUG_CLK
+	bool			ignore_dbg;
 #endif
 	struct kref		ref;
 };
@@ -172,6 +177,9 @@ static bool clk_core_is_enabled(struct clk_core *core)
 	return core->ops->is_enabled(core->hw);
 }
 
+#if (!defined(CONFIG_MACH_MT6799) && !defined(CONFIG_MACH_MT6763) &&	\
+	!defined(CONFIG_MACH_MT6758) && !defined(CONFIG_MACH_MT6739) && \
+	!defined(CONFIG_MACH_MT6775) && !defined(CONFIG_MACH_MT8183))
 static void clk_unprepare_unused_subtree(struct clk_core *core)
 {
 	struct clk_core *child;
@@ -232,6 +240,7 @@ static void clk_disable_unused_subtree(struct clk_core *core)
 unlock_out:
 	clk_enable_unlock(flags);
 }
+#endif
 
 static bool clk_ignore_unused;
 static int __init clk_ignore_unused_setup(char *__unused)
@@ -243,13 +252,19 @@ __setup("clk_ignore_unused", clk_ignore_unused_setup);
 
 static int clk_disable_unused(void)
 {
+#if (!defined(CONFIG_MACH_MT6799) && !defined(CONFIG_MACH_MT6763) &&	\
+	!defined(CONFIG_MACH_MT6758) && !defined(CONFIG_MACH_MT6739) && \
+	!defined(CONFIG_MACH_MT6775) && !defined(CONFIG_MACH_MT8183))
 	struct clk_core *core;
+#endif
 
 	if (clk_ignore_unused) {
 		pr_warn("clk: Not disabling unused clocks\n");
 		return 0;
 	}
-
+#if (!defined(CONFIG_MACH_MT6799) && !defined(CONFIG_MACH_MT6763) &&	\
+	!defined(CONFIG_MACH_MT6758) && !defined(CONFIG_MACH_MT6739) && \
+	!defined(CONFIG_MACH_MT6775) && !defined(CONFIG_MACH_MT8183))
 	clk_prepare_lock();
 
 	hlist_for_each_entry(core, &clk_root_list, child_node)
@@ -266,6 +281,7 @@ static int clk_disable_unused(void)
 
 	clk_prepare_unlock();
 
+	#endif
 	return 0;
 }
 late_initcall_sync(clk_disable_unused);
@@ -431,6 +447,15 @@ bool clk_hw_is_enabled(const struct clk_hw *hw)
 {
 	return clk_core_is_enabled(hw->core);
 }
+
+bool __clk_is_prepared(struct clk *clk)
+{
+	if (!clk)
+		return false;
+
+	return clk_core_is_prepared(clk->core);
+}
+EXPORT_SYMBOL_GPL(__clk_is_prepared);
 
 bool __clk_is_enabled(struct clk *clk)
 {
@@ -2171,6 +2196,78 @@ err_out:
 out:
 	return ret;
 }
+#if defined(CONFIG_AMAZON_DEBUG_CLK)
+static int clk_dump_enabled_clk(void)
+{
+	struct clk_core *core = NULL;
+	int cnt = 0, ign = 0, disb = 0;
+
+	hlist_for_each_entry(core, &clk_debug_list, debug_node) {
+		if (!core)
+			continue;
+		if (core->enable_count <= 0) {
+			disb++;
+			continue;
+		}
+		if (core->ignore_dbg) {
+			ign++;
+			continue;
+		}
+		cnt++;
+		printk("%d|%d:%-16s ",
+				clk_core_is_enabled(core),
+				core->enable_count,
+				core->name);
+		if (cnt%5 == 0)
+			printk("\n");
+	}
+	pr_info("%s:cnt/ign/dis[%d/%d/%d]\n", __func__, cnt, ign, disb);
+
+	return 0;
+}
+
+int clk_pm_notify(struct notifier_block *notify_block,
+		unsigned long mode, void *unused)
+{
+	switch (mode) {
+	case PM_POST_SUSPEND:
+		clk_dump_enabled_clk();
+		break;
+	default:
+		break;
+	}
+	return NOTIFY_DONE;
+}
+
+static struct notifier_block clk_pm_notifier = {
+	.notifier_call = clk_pm_notify,
+	.priority = INT_MAX
+};
+
+static const char * const *get_ignored_clk_names(size_t *num)
+{
+	static const char * const clks[] = {
+		"clk32k",
+		"clk26m",
+		"f_f26m_ck",
+		"mainpll",
+		"syspll_ck",
+		"syspll_d7",
+		"axi_sel",
+		"uart_sel",
+		"infra_uart0",
+		"pg_conn",
+		"infra_device_apc",
+		"infra_auxadc",
+		"infra_therm",
+		"infra_msdc0_sck",
+		"infra_msdc0",
+};
+	*num = ARRAY_SIZE(clks);
+
+	return clks;
+}
+#endif
 
 /**
  * clk_debug_register - add a clk node to the debugfs clk directory
@@ -2183,10 +2280,25 @@ out:
 static int clk_debug_register(struct clk_core *core)
 {
 	int ret = 0;
+#if defined(CONFIG_AMAZON_DEBUG_CLK)
+	int i;
+	size_t num;
+	const char * const *ignored_clks = get_ignored_clk_names(&num);
+#endif
 
 	mutex_lock(&clk_debug_lock);
 	hlist_add_head(&core->debug_node, &clk_debug_list);
 
+#if defined(CONFIG_AMAZON_DEBUG_CLK)
+	for (i = 0; i < num; i++) {
+		if (strncmp(core->name, ignored_clks[i], 32) == 0) {
+			pr_debug("%s: ignore debug %s\n",
+					__func__, core->name);
+			core->ignore_dbg = true;
+			break;
+		}
+	}
+#endif
 	if (!inited)
 		goto unlock;
 
@@ -2269,6 +2381,11 @@ static int __init clk_debug_init(void)
 	mutex_lock(&clk_debug_lock);
 	hlist_for_each_entry(core, &clk_debug_list, debug_node)
 		clk_debug_create_one(core, rootdir);
+#if defined(CONFIG_AMAZON_DEBUG_CLK)
+	if (register_pm_notifier(&clk_pm_notifier) != 0) {
+		pr_warn("%s fail to register pm notifier.\n", __func__);
+	}
+#endif
 
 	inited = 1;
 	mutex_unlock(&clk_debug_lock);

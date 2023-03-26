@@ -16,6 +16,9 @@
 
 int mmc_register_host_class(void);
 void mmc_unregister_host_class(void);
+#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG)
+extern void mmc_host_metrics_work(struct work_struct *work);
+#endif /* CONFIG_AMAZON_METRICS_LOG || CONFIG_AMZN_METRICS_LOG*/
 
 void mmc_retune_enable(struct mmc_host *host);
 void mmc_retune_disable(struct mmc_host *host);

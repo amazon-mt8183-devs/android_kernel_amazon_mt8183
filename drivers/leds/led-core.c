@@ -19,6 +19,18 @@
 #include <linux/rwsem.h>
 #include "leds.h"
 
+#ifdef CONFIG_AMAZON_METRICS_LOG
+#include <linux/metricslog.h>
+#endif
+
+#ifdef CONFIG_AMZN_METRICS_LOG
+#include <linux/amzn_metricslog.h>
+#endif
+
+#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG)
+static char metric_buf[128];
+#endif
+
 DECLARE_RWSEM(leds_list_lock);
 EXPORT_SYMBOL_GPL(leds_list_lock);
 
@@ -191,6 +203,22 @@ void led_set_brightness(struct led_classdev *led_cdev,
 			enum led_brightness brightness)
 {
 	int ret = 0;
+
+	if (led_cdev->brightness != LED_OFF && brightness == LED_OFF) {
+		pr_notice("[METRICS_DISP] LED OFF\n");
+#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG)
+		snprintf(metric_buf, sizeof(metric_buf),
+			"%s:lcd:led=%d;CT;1:NR", __func__, brightness);
+		log_to_metrics(ANDROID_LOG_INFO, "lcd", metric_buf);
+#endif
+	} else if (led_cdev->brightness == LED_OFF && brightness != LED_OFF) {
+		pr_notice("[METRICS_DISP] LED ON\n");
+#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG)
+		snprintf(metric_buf, sizeof(metric_buf),
+			"%s:lcd:led=%d;CT;1:NR", __func__, brightness);
+		log_to_metrics(ANDROID_LOG_INFO, "lcd", metric_buf);
+#endif
+	}
 
 	/* delay brightness if soft-blink is active */
 	if (led_cdev->blink_delay_on || led_cdev->blink_delay_off) {

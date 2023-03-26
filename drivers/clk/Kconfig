@@ -188,6 +188,12 @@ config COMMON_CLK_CDCE706
 	---help---
 	  This driver supports TI CDCE706 programmable 3-PLL clock synthesizer.
 
+config AMAZON_DEBUG_CLK
+	tristate "Amazon Debug Clock"
+	depends on COMMON_CLK
+	---help---
+	  Support to debug importment clock information.
+
 source "drivers/clk/bcm/Kconfig"
 source "drivers/clk/hisilicon/Kconfig"
 source "drivers/clk/qcom/Kconfig"
@@ -198,3 +204,4 @@ source "drivers/clk/mvebu/Kconfig"
 
 source "drivers/clk/samsung/Kconfig"
 source "drivers/clk/tegra/Kconfig"
+source "drivers/clk/mediatek/Kconfig"

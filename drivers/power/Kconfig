@@ -509,6 +509,16 @@ config AXP20X_POWER
 	  This driver provides support for the power supply features of
 	  AXP20x PMIC.
 
+config CHARGER_IDT_P9415
+	bool "IDT P9415 wireless charger dirver"
+	depends on I2C
+	default n
+	help
+	  Enable wireless charger IDT P9415R.
+
+
+source "drivers/power/mediatek/Kconfig"
+
 source "drivers/power/reset/Kconfig"
 
 endif # POWER_SUPPLY

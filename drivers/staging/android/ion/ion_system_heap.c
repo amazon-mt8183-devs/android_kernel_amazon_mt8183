@@ -70,8 +70,10 @@ static struct page *alloc_buffer_page(struct ion_system_heap *heap,
 		page = alloc_pages(gfp_flags | __GFP_COMP, order);
 		if (!page)
 			return NULL;
-		ion_pages_sync_for_device(NULL, page, PAGE_SIZE << order,
-						DMA_BIDIRECTIONAL);
+		ion_pages_sync_for_device(g_ion_device->dev.this_device,
+					  page,
+					  PAGE_SIZE << order,
+					  DMA_BIDIRECTIONAL);
 	}
 
 	return page;
@@ -83,12 +85,10 @@ static void free_buffer_page(struct ion_system_heap *heap,
 	unsigned int order = compound_order(page);
 	bool cached = ion_buffer_cached(buffer);
 
-	if (!cached) {
+	if (!cached && !(buffer->private_flags & ION_PRIV_FLAG_SHRINKER_FREE)) {
 		struct ion_page_pool *pool = heap->pools[order_to_index(order)];
-		if (buffer->private_flags & ION_PRIV_FLAG_SHRINKER_FREE)
-			ion_page_pool_free_immediate(pool, page);
-		else
-			ion_page_pool_free(pool, page);
+
+		ion_page_pool_free(pool, page);
 	} else {
 		__free_pages(page, order);
 	}
@@ -321,119 +321,4 @@ void ion_system_heap_destroy(struct ion_heap *heap)
 	for (i = 0; i < num_orders; i++)
 		ion_page_pool_destroy(sys_heap->pools[i]);
 	kfree(sys_heap);
-}
-
-static int ion_system_contig_heap_allocate(struct ion_heap *heap,
-					   struct ion_buffer *buffer,
-					   unsigned long len,
-					   unsigned long align,
-					   unsigned long flags)
-{
-	int order = get_order(len);
-	struct page *page;
-	struct sg_table *table;
-	unsigned long i;
-	int ret;
-
-	if (align > (PAGE_SIZE << order))
-		return -EINVAL;
-
-	page = alloc_pages(low_order_gfp_flags, order);
-	if (!page)
-		return -ENOMEM;
-
-	split_page(page, order);
-
-	len = PAGE_ALIGN(len);
-	for (i = len >> PAGE_SHIFT; i < (1 << order); i++)
-		__free_page(page + i);
-
-	table = kmalloc(sizeof(struct sg_table), GFP_KERNEL);
-	if (!table) {
-		ret = -ENOMEM;
-		goto free_pages;
-	}
-
-	ret = sg_alloc_table(table, 1, GFP_KERNEL);
-	if (ret)
-		goto free_table;
-
-	sg_set_page(table->sgl, page, len, 0);
-
-	buffer->priv_virt = table;
-
-	ion_pages_sync_for_device(NULL, page, len, DMA_BIDIRECTIONAL);
-
-	return 0;
-
-free_table:
-	kfree(table);
-free_pages:
-	for (i = 0; i < len >> PAGE_SHIFT; i++)
-		__free_page(page + i);
-
-	return ret;
-}
-
-static void ion_system_contig_heap_free(struct ion_buffer *buffer)
-{
-	struct sg_table *table = buffer->priv_virt;
-	struct page *page = sg_page(table->sgl);
-	unsigned long pages = PAGE_ALIGN(buffer->size) >> PAGE_SHIFT;
-	unsigned long i;
-
-	for (i = 0; i < pages; i++)
-		__free_page(page + i);
-	sg_free_table(table);
-	kfree(table);
-}
-
-static int ion_system_contig_heap_phys(struct ion_heap *heap,
-				       struct ion_buffer *buffer,
-				       ion_phys_addr_t *addr, size_t *len)
-{
-	struct sg_table *table = buffer->priv_virt;
-	struct page *page = sg_page(table->sgl);
-	*addr = page_to_phys(page);
-	*len = buffer->size;
-	return 0;
-}
-
-static struct sg_table *ion_system_contig_heap_map_dma(struct ion_heap *heap,
-						struct ion_buffer *buffer)
-{
-	return buffer->priv_virt;
-}
-
-static void ion_system_contig_heap_unmap_dma(struct ion_heap *heap,
-					     struct ion_buffer *buffer)
-{
-}
-
-static struct ion_heap_ops kmalloc_ops = {
-	.allocate = ion_system_contig_heap_allocate,
-	.free = ion_system_contig_heap_free,
-	.phys = ion_system_contig_heap_phys,
-	.map_dma = ion_system_contig_heap_map_dma,
-	.unmap_dma = ion_system_contig_heap_unmap_dma,
-	.map_kernel = ion_heap_map_kernel,
-	.unmap_kernel = ion_heap_unmap_kernel,
-	.map_user = ion_heap_map_user,
-};
-
-struct ion_heap *ion_system_contig_heap_create(struct ion_platform_heap *unused)
-{
-	struct ion_heap *heap;
-
-	heap = kzalloc(sizeof(struct ion_heap), GFP_KERNEL);
-	if (!heap)
-		return ERR_PTR(-ENOMEM);
-	heap->ops = &kmalloc_ops;
-	heap->type = ION_HEAP_TYPE_SYSTEM_CONTIG;
-	return heap;
-}
-
-void ion_system_contig_heap_destroy(struct ion_heap *heap)
-{
-	kfree(heap);
 }

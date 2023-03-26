@@ -21,16 +21,30 @@
 #include <linux/err.h>
 #include <linux/init.h>
 #include <linux/io.h>
+#include <linux/interrupt.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/moduleparam.h>
+#include <linux/init.h>
+#include <linux/proc_fs.h>
+#include <linux/uaccess.h>
 #include <linux/of.h>
+#include <linux/of_irq.h>
 #include <linux/platform_device.h>
 #include <linux/types.h>
 #include <linux/watchdog.h>
 #include <linux/notifier.h>
 #include <linux/reboot.h>
 #include <linux/delay.h>
+#include <linux/reset-controller.h>
+#include <linux/reset.h>
+#include <linux/sched.h>
+#include <linux/timer.h>
+#include <linux/slab.h>
+#ifdef CONFIG_MT6397_MISC
+#include <linux/mfd/mt6397/rtc_misc.h>
+#endif
+#include "../misc/mediatek/include/mt-plat/mtk_rtc.h"
 
 #define WDT_MAX_TIMEOUT		31
 #define WDT_MIN_TIMEOUT		1
@@ -49,32 +63,212 @@
 #define WDT_MODE_EXRST_EN	(1 << 2)
 #define WDT_MODE_IRQ_EN		(1 << 3)
 #define WDT_MODE_AUTO_START	(1 << 4)
+#define WDT_MODE_IRQ_LVL	(1 << 5)
 #define WDT_MODE_DUAL_EN	(1 << 6)
 #define WDT_MODE_KEY		0x22000000
+
+#define WDT_STATUS		0x0c
+#define WDT_NONRST_REG		0x20
+#define WDT_NONRST_REG2		0x24
 
 #define WDT_SWRST		0x14
 #define WDT_SWRST_KEY		0x1209
 
+#define WDT_SWSYSRST		0x18
+#define WDT_SWSYSRST_KEY	0x88000000
+
+#define WDT_REQ_MODE 0x30
+#define WDT_REQ_MODE_KEY 0x33000000
+#define WDT_REQ_IRQ_EN 0x34
+#define WDT_REQ_IRQ_KEY 0x44000000
+#define WDT_REQ_MODE_DEBUG_EN 0x80000
+
+#define WDT_LATCH_CTL		0x44
+#define WDT_DEBUG_CTL_DVFSRC_EN      (1 << 9)
+#define WDT_LATCH_CTL_DVFSRC         (1 << 13)
+#define WDT_LATCH_CTL_KEY            (0x95000000)
+
+#define WDT_DEBUG_CTL2		0xA0
+#define WDT_DEBUG_CTL2_KEY           (0x55000000)
+
+#define WDT_NONRST2_RECOVERY      (1 << 1)
+#define WDT_NONRST2_BOOTLOADER    (1 << 2)
+#define WDT_NONRST2_RPMB_PROG_KEY (1 << 3)
+#define WDT_NONRST2_RPMB_PROG_KEY_EXTEND (1 << 4)
+
 #define DRV_NAME		"mtk-wdt"
-#define DRV_VERSION		"1.0"
+#define DRV_VERSION		"2.0"
 
 static bool nowayout = WATCHDOG_NOWAYOUT;
 static unsigned int timeout = WDT_MAX_TIMEOUT;
 
+struct toprgu_reset {
+	spinlock_t lock;
+	void __iomem *toprgu_swrst_base;
+	int regofs;
+	struct reset_controller_dev rcdev;
+};
+
 struct mtk_wdt_dev {
 	struct watchdog_device wdt_dev;
 	void __iomem *wdt_base;
+	int wdt_irq_id;
 	struct notifier_block restart_handler;
+	struct toprgu_reset reset_controller;
 };
 
+static void __iomem *toprgu_base;
+static struct watchdog_device *wdt_dev;
+
+static int toprgu_reset_assert(struct reset_controller_dev *rcdev,
+			      unsigned long id)
+{
+	unsigned int tmp;
+	unsigned long flags;
+	struct toprgu_reset *data = container_of(rcdev, struct toprgu_reset, rcdev);
+
+	spin_lock_irqsave(&data->lock, flags);
+
+	tmp = __raw_readl(data->toprgu_swrst_base + data->regofs);
+	tmp |= BIT(id);
+	tmp |= WDT_SWSYSRST_KEY;
+	writel(tmp, data->toprgu_swrst_base + data->regofs);
+
+	spin_unlock_irqrestore(&data->lock, flags);
+
+	return 0;
+}
+
+static int toprgu_reset_deassert(struct reset_controller_dev *rcdev,
+				unsigned long id)
+{
+	unsigned int tmp;
+	unsigned long flags;
+	struct toprgu_reset *data = container_of(rcdev, struct toprgu_reset, rcdev);
+
+	spin_lock_irqsave(&data->lock, flags);
+
+	tmp = __raw_readl(data->toprgu_swrst_base + data->regofs);
+	tmp &= ~BIT(id);
+	tmp |= WDT_SWSYSRST_KEY;
+	writel(tmp, data->toprgu_swrst_base + data->regofs);
+
+	spin_unlock_irqrestore(&data->lock, flags);
+
+	return 0;
+}
+
+static int toprgu_reset(struct reset_controller_dev *rcdev,
+			      unsigned long id)
+{
+	int ret;
+
+	ret = toprgu_reset_assert(rcdev, id);
+	if (ret)
+		return ret;
+
+	return toprgu_reset_deassert(rcdev, id);
+}
+
+static struct reset_control_ops toprgu_reset_ops = {
+	.assert = toprgu_reset_assert,
+	.deassert = toprgu_reset_deassert,
+	.reset = toprgu_reset,
+};
+
+static void toprgu_register_reset_controller(struct platform_device *pdev, int regofs)
+{
+	int ret;
+	struct mtk_wdt_dev *mtk_wdt = platform_get_drvdata(pdev);
+
+	spin_lock_init(&mtk_wdt->reset_controller.lock);
+
+	mtk_wdt->reset_controller.toprgu_swrst_base = mtk_wdt->wdt_base;
+	mtk_wdt->reset_controller.regofs = regofs;
+	mtk_wdt->reset_controller.rcdev.owner = THIS_MODULE;
+	mtk_wdt->reset_controller.rcdev.nr_resets = 15;
+	mtk_wdt->reset_controller.rcdev.ops = &toprgu_reset_ops;
+	mtk_wdt->reset_controller.rcdev.of_node = pdev->dev.of_node;
+
+	ret = reset_controller_register(&mtk_wdt->reset_controller.rcdev);
+	if (ret)
+		pr_err("could not register toprgu reset controller: %d\n", ret);
+}
+
+int __attribute__((weak)) rtc_mark_quiescent(int value) { return 0; }
 static int mtk_reset_handler(struct notifier_block *this, unsigned long mode,
 				void *cmd)
 {
 	struct mtk_wdt_dev *mtk_wdt;
 	void __iomem *wdt_base;
+	u32 reg;
+	u32 nonrst_reg2;
 
 	mtk_wdt = container_of(this, struct mtk_wdt_dev, restart_handler);
 	wdt_base = mtk_wdt->wdt_base;
+
+	/* WDT_STATUS will be cleared to  zero after writing to WDT_MODE, so we backup it in WDT_NONRST_REG,
+	  * and then print it out in mtk_wdt_probe() after reset
+	  */
+	writel(__raw_readl(wdt_base + WDT_STATUS), wdt_base + WDT_NONRST_REG);
+
+	reg = ioread32(wdt_base + WDT_MODE);
+	reg &= ~(WDT_MODE_DUAL_EN | WDT_MODE_IRQ_EN | WDT_MODE_EN | WDT_MODE_AUTO_START | WDT_MODE_IRQ_LVL);
+	reg |= WDT_MODE_KEY;
+	iowrite32(reg, wdt_base + WDT_MODE);
+	if (cmd && !strcmp(cmd, "rpmbp-eng")) {
+		nonrst_reg2 = ioread32(wdt_base + WDT_NONRST_REG2);
+		nonrst_reg2 |= WDT_NONRST2_RPMB_PROG_KEY;
+		nonrst_reg2 &= ~WDT_NONRST2_RPMB_PROG_KEY_EXTEND;
+		iowrite32(nonrst_reg2, wdt_base + WDT_NONRST_REG2);
+	} else if (cmd && !strcmp(cmd, "rpmbp-prod")) {
+		nonrst_reg2 = ioread32(wdt_base + WDT_NONRST_REG2);
+		nonrst_reg2 |= WDT_NONRST2_RPMB_PROG_KEY;
+		nonrst_reg2 |= WDT_NONRST2_RPMB_PROG_KEY_EXTEND;
+		iowrite32(nonrst_reg2, wdt_base + WDT_NONRST_REG2);
+	} else if (cmd && (strstr(cmd, "recovery"))) {
+		iowrite32(ioread32(wdt_base + WDT_NONRST_REG2) | WDT_NONRST2_RECOVERY, wdt_base + WDT_NONRST_REG2);
+		#ifdef CONFIG_MT6397_MISC
+		mtk_misc_mark_recovery();
+		#else
+		rtc_mark_recovery();
+		#endif
+	} else if (cmd && !strcmp(cmd, "bootloader")) {
+		iowrite32(ioread32(wdt_base + WDT_NONRST_REG2) | WDT_NONRST2_BOOTLOADER, wdt_base + WDT_NONRST_REG2);
+		#ifdef CONFIG_MT6397_MISC
+		mtk_misc_mark_fast();
+		#else
+		rtc_mark_fast();
+		#endif
+	} else if (cmd && !strcmp(cmd, "kpoc")) {
+		#ifdef CONFIG_MT6397_MISC
+		#else
+		rtc_mark_kpoc();
+		#endif
+	} else if (cmd && !strcmp(cmd, "enter_kpoc")) {
+		#ifdef CONFIG_MT6397_MISC
+		#else
+		rtc_mark_enter_kpoc();
+		#endif
+	} else if (cmd && !strcmp(cmd, "sw_lprst")) {
+		#ifdef CONFIG_MT6397_MISC
+		#else
+		rtc_mark_sw_lprst();
+		#endif
+	} else {
+		/*
+		 *cmd != NULL means by pass power key reboot,
+		 *We using auto_restart bit as by pass power key flag
+		 */
+		writel(__raw_readl(wdt_base + WDT_MODE) | WDT_MODE_AUTO_START | WDT_MODE_KEY,
+			wdt_base + WDT_MODE);
+	}
+
+	if (cmd && (strstr(cmd, "quiescent"))) {
+		rtc_mark_quiescent(1);
+	} else {
+		rtc_mark_quiescent(0);
+	}
 
 	while (1) {
 		writel(WDT_SWRST_KEY, wdt_base + WDT_SWRST);
@@ -90,6 +284,7 @@ static int mtk_wdt_ping(struct watchdog_device *wdt_dev)
 	void __iomem *wdt_base = mtk_wdt->wdt_base;
 
 	iowrite32(WDT_RST_RELOAD, wdt_base + WDT_RST);
+	printk_deferred("[WDK]: kick Ex WDT\n");
 
 	return 0;
 }
@@ -141,13 +336,70 @@ static int mtk_wdt_start(struct watchdog_device *wdt_dev)
 		return ret;
 
 	reg = ioread32(wdt_base + WDT_MODE);
-	reg &= ~(WDT_MODE_IRQ_EN | WDT_MODE_DUAL_EN);
+	reg |= (WDT_MODE_DUAL_EN | WDT_MODE_IRQ_EN | WDT_MODE_EXRST_EN | WDT_MODE_IRQ_LVL);
+	reg &= ~(WDT_MODE_EXT_POL_HIGH);
+
 	reg |= (WDT_MODE_EN | WDT_MODE_KEY);
 	iowrite32(reg, wdt_base + WDT_MODE);
 
 	return 0;
 }
 
+#if defined(CONFIG_MAGIC_SYSRQ_WD_TEST)
+/*
+*   watchdog mode:
+*   debug_en:   debug module reset enable.
+*   irq:        generate interrupt instead of reset
+*   ext_en:     output reset signal to outside
+*   ext_pol:    polarity of external reset signal
+*   wdt_en:     enable watch dog timer
+*/
+bool mtk_wdt_mode_config_for_sysrq(void)
+{
+	u32 reg;
+	struct mtk_wdt_dev *mtk_wdt;
+	void __iomem *wdt_base;
+
+	if (unlikely(wdt_dev == NULL))
+		return false;
+
+	/* get regs base */
+	mtk_wdt = watchdog_get_drvdata(wdt_dev);
+	wdt_base = mtk_wdt->wdt_base;
+
+	reg = ioread32(wdt_base + WDT_MODE);
+
+	/* Bit 0 : Whether enable watchdog or not */
+	reg |= WDT_MODE_EN;
+
+	/* Bit 1 : Configure extern reset signal polarity. */
+	reg &= ~WDT_MODE_EXT_POL_HIGH;
+
+	/* Bit 2 : Whether enable external reset signal */
+	reg |= WDT_MODE_EXRST_EN;
+
+	/* Bit 3 : Whether generating interrupt instead of reset signal */
+	reg &= ~WDT_MODE_IRQ_EN;
+
+	/* Bit 6 : Whether enable debug module reset */
+	reg &= ~WDT_MODE_DUAL_EN;
+
+	reg |= WDT_MODE_KEY | WDT_MODE_AUTO_START | WDT_MODE_IRQ_LVL;
+
+	iowrite32(reg, wdt_base + WDT_MODE);
+
+	return true;
+
+}
+
+void deactive_mtk_wdd(void)
+{
+	if (unlikely(wdt_dev == NULL))
+		return;
+
+	clear_bit(WDOG_ACTIVE, &wdt_dev->status);
+}
+#endif
 static const struct watchdog_info mtk_wdt_info = {
 	.identity	= DRV_NAME,
 	.options	= WDIOF_SETTIMEOUT |
@@ -163,10 +415,97 @@ static const struct watchdog_ops mtk_wdt_ops = {
 	.set_timeout	= mtk_wdt_set_timeout,
 };
 
+static void wdt_report_info(void)
+{
+	struct task_struct *task;
+
+	task = &init_task;
+	pr_debug("Qwdt: -- watchdog time out\n");
+
+	for_each_process(task) {
+		if (task->state == 0) {
+			pr_debug("PID: %d, name: %s\n backtrace:\n", task->pid, task->comm);
+			show_stack(task, NULL);
+			pr_debug("\n");
+		}
+	}
+
+	pr_debug("backtrace of current task:\n");
+	show_stack(NULL, NULL);
+	pr_debug("Qwdt: -- watchdog time out\n");
+}
+
+static irqreturn_t mtk_wdt_isr(int irq, void *dev_id)
+{
+	pr_err("fwq mtk_wdt_isr\n");
+
+	wdt_report_info();
+	WARN_ON(1);
+
+	return IRQ_HANDLED;
+}
+
+int mtk_rgu_cfg_dvfsrc(int enable)
+{
+	unsigned int dbg_ctl, latch;
+
+	dbg_ctl = ioread32(toprgu_base + WDT_DEBUG_CTL2);
+	latch = ioread32(toprgu_base + WDT_LATCH_CTL);
+
+	if (enable == 1) {
+		/* enable dvfsrc_en */
+		dbg_ctl |= WDT_DEBUG_CTL_DVFSRC_EN;
+
+		/* set dvfsrc_latch */
+		latch |= WDT_LATCH_CTL_DVFSRC;
+	} else {
+		/* disable is not allowed */
+		return -1;
+	}
+
+	dbg_ctl |= WDT_DEBUG_CTL2_KEY;
+	iowrite32(dbg_ctl, toprgu_base + WDT_DEBUG_CTL2);
+
+	latch |= WDT_LATCH_CTL_KEY;
+	iowrite32(latch, toprgu_base + WDT_LATCH_CTL);
+
+	return 0;
+}
+
+#ifdef CONFIG_AMAZON_BOOTUP_KEEP_WATCHDOG
+static void mtk_wdt_kick_timer_func(unsigned long data)
+{
+	struct timer_list *timer = (struct timer_list *)data;
+
+	mtk_wdt_ping(wdt_dev);
+	del_timer(timer);
+	kfree(timer);
+	pr_info("Kick timer for mtk_wdt is stopped.\n");
+}
+
+static void mtk_wdt_kick_timer_create(void)
+{
+	struct timer_list *timer;
+
+	timer = kzalloc(sizeof(struct timer_list), GFP_ATOMIC);
+	if (!timer)
+		return;
+
+	init_timer(timer);
+	timer->function = mtk_wdt_kick_timer_func;
+	timer->data = (unsigned long)timer;
+	timer->expires = jiffies + msecs_to_jiffies(
+		(WDT_MAX_TIMEOUT - 1) * MSEC_PER_SEC);
+	add_timer(timer);
+	pr_info("Kick timer for mtk_wdt is created.\n");
+}
+#endif /* CONFIG_AMAZON_BOOTUP_KEEP_WATCHDOG */
+
 static int mtk_wdt_probe(struct platform_device *pdev)
 {
 	struct mtk_wdt_dev *mtk_wdt;
 	struct resource *res;
+	unsigned int tmp;
 	int err;
 
 	mtk_wdt = devm_kzalloc(&pdev->dev, sizeof(*mtk_wdt), GFP_KERNEL);
@@ -177,8 +516,26 @@ static int mtk_wdt_probe(struct platform_device *pdev)
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	mtk_wdt->wdt_base = devm_ioremap_resource(&pdev->dev, res);
+
 	if (IS_ERR(mtk_wdt->wdt_base))
 		return PTR_ERR(mtk_wdt->wdt_base);
+
+	pr_err("MTK_WDT_NONRST_REG(%x)\n", __raw_readl(mtk_wdt->wdt_base + WDT_NONRST_REG));
+
+	mtk_wdt->wdt_irq_id = irq_of_parse_and_map(pdev->dev.of_node, 0);
+	if (!mtk_wdt->wdt_irq_id) {
+		pr_err("RGU get IRQ ID failed\n");
+		return -ENODEV;
+	}
+
+	err = request_irq(mtk_wdt->wdt_irq_id, (irq_handler_t)mtk_wdt_isr, IRQF_TRIGGER_NONE, DRV_NAME, mtk_wdt);
+	if (err != 0) {
+		pr_err("mtk_wdt_probe : failed to request irq (%d)\n", err);
+		return err;
+	}
+
+	toprgu_base = mtk_wdt->wdt_base;
+	wdt_dev = &mtk_wdt->wdt_dev;
 
 	mtk_wdt->wdt_dev.info = &mtk_wdt_info;
 	mtk_wdt->wdt_dev.ops = &mtk_wdt_ops;
@@ -192,7 +549,13 @@ static int mtk_wdt_probe(struct platform_device *pdev)
 
 	watchdog_set_drvdata(&mtk_wdt->wdt_dev, mtk_wdt);
 
+#ifdef CONFIG_AMAZON_BOOTUP_KEEP_WATCHDOG
+	mtk_wdt_start(&mtk_wdt->wdt_dev);
+	mtk_wdt_ping(&mtk_wdt->wdt_dev);
+	mtk_wdt_kick_timer_create();
+#else
 	mtk_wdt_stop(&mtk_wdt->wdt_dev);
+#endif /* CONFIG_AMAZON_BOOTUP_KEEP_WATCHDOG */
 
 	err = watchdog_register_device(&mtk_wdt->wdt_dev);
 	if (unlikely(err))
@@ -207,6 +570,24 @@ static int mtk_wdt_probe(struct platform_device *pdev)
 
 	dev_info(&pdev->dev, "Watchdog enabled (timeout=%d sec, nowayout=%d)\n",
 			mtk_wdt->wdt_dev.timeout, nowayout);
+
+	writel(WDT_REQ_MODE_KEY | (__raw_readl(mtk_wdt->wdt_base + WDT_REQ_MODE) &
+		(~WDT_REQ_MODE_DEBUG_EN)), mtk_wdt->wdt_base + WDT_REQ_MODE);
+
+	toprgu_register_reset_controller(pdev, WDT_SWSYSRST);
+
+	/* enable scpsys thermal and thermal_controller request, and set to reset directly mode */
+	tmp = ioread32(mtk_wdt->wdt_base + WDT_REQ_MODE) | (1 << 18) | (1 << 0);
+	tmp |= WDT_REQ_MODE_KEY;
+	iowrite32(tmp, mtk_wdt->wdt_base + WDT_REQ_MODE);
+
+	tmp = ioread32(mtk_wdt->wdt_base + WDT_REQ_IRQ_EN);
+	tmp &= ~((1 << 18) | (1 << 0));
+	tmp |= WDT_REQ_IRQ_KEY;
+	iowrite32(tmp, mtk_wdt->wdt_base + WDT_REQ_IRQ_EN);
+
+	/* clear quiescent mode*/
+	rtc_mark_quiescent(0);
 
 	return 0;
 }
@@ -226,6 +607,8 @@ static int mtk_wdt_remove(struct platform_device *pdev)
 	unregister_restart_handler(&mtk_wdt->restart_handler);
 
 	watchdog_unregister_device(&mtk_wdt->wdt_dev);
+
+	reset_controller_unregister(&mtk_wdt->reset_controller.rcdev);
 
 	return 0;
 }
@@ -277,6 +660,95 @@ static struct platform_driver mtk_wdt_driver = {
 };
 
 module_platform_driver(mtk_wdt_driver);
+
+static int wk_proc_cmd_read(struct seq_file *s, void *v)
+{
+	unsigned int enabled = 1;
+
+	if (!(ioread32(toprgu_base + WDT_MODE) & WDT_MODE_EN))
+		enabled = 0;
+
+	seq_printf(s, "enabled timeout\n%-4d %-8d\n", enabled, wdt_dev->timeout);
+
+	return 0;
+}
+
+static int wk_proc_cmd_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, wk_proc_cmd_read, NULL);
+}
+
+static ssize_t wk_proc_cmd_write(struct file *file, const char *buf, size_t count, loff_t *data)
+{
+	int ret;
+	int enable;
+	int timeout;
+	char wk_cmd_buf[256];
+
+	if (count == 0)
+		return -1;
+
+	if (count > 255)
+		count = 255;
+
+	ret = copy_from_user(wk_cmd_buf, buf, count);
+	if (ret < 0)
+		return -1;
+
+	wk_cmd_buf[count] = '\0';
+
+	pr_debug("Write %s\n", wk_cmd_buf);
+
+	ret = sscanf(wk_cmd_buf, "%d %d", &enable, &timeout);
+	if (ret != 2)
+		pr_debug("%s: expect 2 numbers\n", __func__);
+
+	pr_debug("[WDK] enable=%d  timeout=%d\n", enable, timeout);
+
+	if (timeout > 20 && timeout <= WDT_MAX_TIMEOUT) {
+		wdt_dev->timeout = timeout;
+		mtk_wdt_set_timeout(wdt_dev, wdt_dev->timeout);
+	} else {
+		pr_err("[WDK] The timeout(%d) should bigger than 20 and not bigger than %d\n",
+				timeout, WDT_MAX_TIMEOUT);
+
+	}
+
+	if (enable == 1) {
+		mtk_wdt_start(wdt_dev);
+		set_bit(WDOG_ACTIVE, &wdt_dev->status);
+		pr_err("[WDK] enable wdt\n");
+	} else if (enable == 0) {
+		mtk_wdt_stop(wdt_dev);
+		clear_bit(WDOG_ACTIVE, &wdt_dev->status);
+		pr_err("[WDK] disable wdt\n");
+	}
+
+	return count;
+}
+
+static const struct file_operations wk_proc_cmd_fops = {
+	.owner = THIS_MODULE,
+	.open = wk_proc_cmd_open,
+	.read = seq_read,
+	.write = wk_proc_cmd_write,
+	.llseek = seq_lseek,
+	.release = single_release,
+};
+
+static int __init wk_proc_init(void)
+{
+	struct proc_dir_entry *de = proc_create("wdk", 0660, NULL, &wk_proc_cmd_fops);
+
+	if (!de)
+		pr_err("[wk_proc_init]: create /proc/wdk failed\n");
+
+	pr_debug("[WDK] Initialize proc\n");
+
+	return 0;
+}
+
+late_initcall(wk_proc_init);
 
 module_param(timeout, uint, 0);
 MODULE_PARM_DESC(timeout, "Watchdog heartbeat in seconds");

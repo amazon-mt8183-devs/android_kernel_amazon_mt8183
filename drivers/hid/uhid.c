@@ -189,8 +189,7 @@ static int __uhid_report_queue_and_wait(struct uhid_device *uhid,
 	spin_unlock_irqrestore(&uhid->qlock, flags);
 
 	ret = wait_event_interruptible_timeout(uhid->report_wait,
-				!uhid->report_running || !uhid->running,
-				5 * HZ);
+				!uhid->report_running || !uhid->running, 0.5 * HZ);
 	if (!ret || !uhid->running || uhid->report_running)
 		ret = -EIO;
 	else if (ret < 0)
@@ -382,7 +381,7 @@ static int uhid_hid_output_report(struct hid_device *hid, __u8 *buf,
 	return uhid_hid_output_raw(hid, buf, count, HID_OUTPUT_REPORT);
 }
 
-static struct hid_ll_driver uhid_hid_driver = {
+struct hid_ll_driver uhid_hid_driver = {
 	.start = uhid_hid_start,
 	.stop = uhid_hid_stop,
 	.open = uhid_hid_open,
@@ -391,6 +390,7 @@ static struct hid_ll_driver uhid_hid_driver = {
 	.raw_request = uhid_hid_raw_request,
 	.output_report = uhid_hid_output_report,
 };
+EXPORT_SYMBOL_GPL(uhid_hid_driver);
 
 #ifdef CONFIG_COMPAT
 

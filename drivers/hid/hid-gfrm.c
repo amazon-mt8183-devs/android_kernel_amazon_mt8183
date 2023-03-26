@@ -27,6 +27,7 @@
 
 static u8 search_key_dn[3] = {0x40, 0x21, 0x02};
 static u8 search_key_up[3] = {0x40, 0x00, 0x00};
+static u8 *cdata;
 
 static int gfrm_input_mapping(struct hid_device *hdev, struct hid_input *hi,
 		struct hid_field *field, struct hid_usage *usage,
@@ -69,7 +70,8 @@ static int gfrm_raw_event(struct hid_device *hdev, struct hid_report *report,
 	 */
 	switch (data[1]) {
 	case GFRM100_SEARCH_KEY_DOWN:
-		ret = hid_report_raw_event(hdev, HID_INPUT_REPORT, search_key_dn,
+		memcpy(cdata, search_key_dn, sizeof(search_key_dn));
+		ret = hid_report_raw_event(hdev, HID_INPUT_REPORT, cdata,
 					   sizeof(search_key_dn), 1);
 		break;
 
@@ -77,7 +79,8 @@ static int gfrm_raw_event(struct hid_device *hdev, struct hid_report *report,
 		break;
 
 	case GFRM100_SEARCH_KEY_UP:
-		ret = hid_report_raw_event(hdev, HID_INPUT_REPORT, search_key_up,
+		memcpy(cdata, search_key_up, sizeof(search_key_up));
+		ret = hid_report_raw_event(hdev, HID_INPUT_REPORT, cdata,
 					   sizeof(search_key_up), 1);
 		break;
 
@@ -123,6 +126,12 @@ static int gfrm_probe(struct hid_device *hdev, const struct hid_device_id *id)
 	}
 
 	ret = hid_hw_start(hdev, HID_CONNECT_DEFAULT);
+	if (ret)
+		goto done;
+
+	cdata = kzalloc(HID_MAX_BUFFER_SIZE, GFP_KERNEL);
+	if (!cdata)
+		ret = -ENOMEM;
 done:
 	return ret;
 }
@@ -131,6 +140,7 @@ static void gfrm_remove(struct hid_device *hdev)
 {
 	hid_hw_stop(hdev);
 	hid_set_drvdata(hdev, NULL);
+	kfree(cdata);
 }
 
 static const struct hid_device_id gfrm_devices[] = {
