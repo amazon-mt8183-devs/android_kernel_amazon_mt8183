@@ -2282,7 +2282,7 @@ static int sony_probe(struct hid_device *hdev, const struct hid_device_id *id)
 	spin_lock_init(&sc->lock);
 
 	sc->quirks = quirks;
-	hid_err(hdev, "quirks=0x%x\n", quirks);
+	hid_err(hdev, "quirks=0x%lu\n", quirks);
 	hid_set_drvdata(hdev, sc);
 	sc->hdev = hdev;
 
