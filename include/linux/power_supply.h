@@ -39,6 +39,9 @@ enum {
 	POWER_SUPPLY_STATUS_DISCHARGING,
 	POWER_SUPPLY_STATUS_NOT_CHARGING,
 	POWER_SUPPLY_STATUS_FULL,
+#if CONFIG_MTK_GAUGE_VERSION == 10
+	POWER_SUPPLY_STATUS_CMD_DISCHARGING,
+#endif
 };
 
 enum {
@@ -123,6 +126,7 @@ enum power_supply_property {
 	POWER_SUPPLY_PROP_CHARGE_CONTROL_LIMIT,
 	POWER_SUPPLY_PROP_CHARGE_CONTROL_LIMIT_MAX,
 	POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT,
+	POWER_SUPPLY_PROP_THERMAL_INPUT_POWER_LIMIT,
 	POWER_SUPPLY_PROP_ENERGY_FULL_DESIGN,
 	POWER_SUPPLY_PROP_ENERGY_EMPTY_DESIGN,
 	POWER_SUPPLY_PROP_ENERGY_FULL,
@@ -155,6 +159,25 @@ enum power_supply_property {
 	POWER_SUPPLY_PROP_CHARGE_ENABLED,
 	/* Local extensions of type int64_t */
 	POWER_SUPPLY_PROP_CHARGE_COUNTER_EXT,
+#if CONFIG_MTK_GAUGE_VERSION == 10
+	POWER_SUPPLY_PROP_batt_vol,
+	POWER_SUPPLY_PROP_batt_temp,
+	/* Add for EM */
+	POWER_SUPPLY_PROP_TemperatureR,
+	POWER_SUPPLY_PROP_TempBattVoltage,
+	POWER_SUPPLY_PROP_InstatVolt,
+	POWER_SUPPLY_PROP_BatteryAverageCurrent,
+	POWER_SUPPLY_PROP_BatterySenseVoltage,
+	POWER_SUPPLY_PROP_ISenseVoltage,
+	POWER_SUPPLY_PROP_ChargerVoltage,
+	/* Dual battery */
+	POWER_SUPPLY_PROP_status_smb,
+	POWER_SUPPLY_PROP_capacity_smb,
+	POWER_SUPPLY_PROP_present_smb,
+	/* ADB CMD Discharging */
+	POWER_SUPPLY_PROP_adjust_power,
+#endif
+	POWER_SUPPLY_PROP_CHARGER_TYPE,
 	/* Properties of type `const char *' */
 	POWER_SUPPLY_PROP_MODEL_NAME,
 	POWER_SUPPLY_PROP_MANUFACTURER,
@@ -170,6 +193,7 @@ enum power_supply_type {
 	POWER_SUPPLY_TYPE_USB_DCP,	/* Dedicated Charging Port */
 	POWER_SUPPLY_TYPE_USB_CDP,	/* Charging Downstream Port */
 	POWER_SUPPLY_TYPE_USB_ACA,	/* Accessory Charger Adapters */
+	POWER_SUPPLY_TYPE_WIRELESS,	/* Wireless Charger */
 };
 
 enum power_supply_notifier_events {

@@ -280,6 +280,10 @@ struct tty_struct {
 	struct termiox *termiox;	/* May be NULL for unsupported */
 	char name[64];
 	struct pid *pgrp;		/* Protected by ctrl lock */
+	/*
+	 * Writes protected by both ctrl lock and legacy mutex, readers must use
+	 * at least one of them.
+	 */
 	struct pid *session;
 	unsigned long flags;
 	int count;
@@ -288,6 +292,7 @@ struct tty_struct {
 		      flow_stopped:1,
 		      unused:BITS_PER_LONG - 2;
 	int hw_stopped;
+	unsigned char peer_stops:1;
 	unsigned long ctrl_status:8,	/* ctrl_lock */
 		      packet:1,
 		      unused_ctrl:BITS_PER_LONG - 9;
