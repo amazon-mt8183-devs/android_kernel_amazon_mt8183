@@ -138,6 +138,56 @@ static ssize_t sel_read_enforce(struct file *filp, char __user *buf,
 	return simple_read_from_buffer(buf, count, ppos, tmpbuf, length);
 }
 
+#ifdef CONFIG_SECURITY_SELINUX_KERN_PERMISSIVE
+static bool last_is_enforce;
+unsigned int force_permissive_req_cnt;
+static DEFINE_MUTEX(selinux_set_enforcing_lock);
+
+static void selinux_set_enforce(bool enforce)
+{
+	if (enforce == !!selinux_enforcing)
+		return;
+
+	audit_log(current->audit_context, GFP_KERNEL, AUDIT_MAC_STATUS,
+		"enforcing=%d old_enforcing=%d auid=%u ses=%u",
+		enforce, selinux_enforcing,
+		from_kuid(&init_user_ns, audit_get_loginuid(current)),
+		audit_get_sessionid(current));
+
+	selinux_enforcing = enforce;
+	if (selinux_enforcing)
+		avc_ss_reset(0);
+	selnl_notify_setenforce(selinux_enforcing);
+	selinux_status_update_setenforce(selinux_enforcing);
+}
+
+void selinux_set_permissive_save(void)
+{
+
+	mutex_lock(&selinux_set_enforcing_lock);
+
+	if (++force_permissive_req_cnt == 1 && selinux_enforcing) {
+		last_is_enforce = true;
+		selinux_set_enforce(false);
+	}
+
+	mutex_unlock(&selinux_set_enforcing_lock);
+}
+
+void selinux_mode_restore(void)
+{
+	mutex_lock(&selinux_set_enforcing_lock);
+
+	if (force_permissive_req_cnt > 0
+	    && --force_permissive_req_cnt == 0
+	    && last_is_enforce) {
+		selinux_set_enforce(true);
+	}
+
+	mutex_unlock(&selinux_set_enforcing_lock);
+}
+#endif
+
 #ifdef CONFIG_SECURITY_SELINUX_DEVELOP
 static ssize_t sel_write_enforce(struct file *file, const char __user *buf,
 				 size_t count, loff_t *ppos)
