@@ -2775,7 +2775,7 @@ static int mtk_charger_parse_dt(struct charger_manager *info, struct device *dev
 
 	if (of_property_read_u32(np, "top_off_mode_keep_time", &val) >= 0) {
 		info->top_off_mode_keep_time = val;
-		chr_debug("%s: top_off_mode_keep_time: %d\n",
+		chr_debug("%s: top_off_mode_keep_time: %ld\n",
 			__func__, info->top_off_mode_keep_time);
 	} else {
 		chr_err("use default top_off_mode_keep_time:%d\n",
@@ -2823,7 +2823,7 @@ static int mtk_charger_parse_dt(struct charger_manager *info, struct device *dev
 
 	if (of_property_read_u32(np, "top_off_difference_full_cv", &val) >= 0) {
 		info->top_off_difference_full_cv = val;
-		chr_debug("%s: top_off_difference_full_cv: %d\n",
+		chr_debug("%s: top_off_difference_full_cv: %ld\n",
 			__func__, info->top_off_difference_full_cv);
 	} else {
 		chr_err("use default top_off_difference_full_cv:%d\n",
@@ -2833,7 +2833,7 @@ static int mtk_charger_parse_dt(struct charger_manager *info, struct device *dev
 
 	if (of_property_read_u32(np, "normal_difference_full_cv", &val) >= 0) {
 		info->normal_difference_full_cv = val;
-		chr_debug("%s: normal_difference_full_cv: %d\n",
+		chr_debug("%s: normal_difference_full_cv: %ld\n",
 			__func__, info->normal_difference_full_cv);
 	} else {
 		chr_err("use default normal_difference_full_cv:%d\n",
