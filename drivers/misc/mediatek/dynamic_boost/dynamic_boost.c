@@ -457,7 +457,7 @@ static void get_cluster_num_cpus(void)
 {
 	int nums_cpus = num_possible_cpus(), i = 0;
 
-	for (i; i < nums_cpus; i++) {
+	for (; i < nums_cpus; i++) {
 		if (arch_cpu_is_little(i)) {
 			little_cpus++;
 			if (first_little_cpu == -1)
