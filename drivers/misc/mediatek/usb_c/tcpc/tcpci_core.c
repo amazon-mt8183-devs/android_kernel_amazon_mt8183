@@ -340,14 +340,14 @@ static ssize_t tcpc_store_property(struct device *dev,
 			return -EINVAL;
 		}
 
-		dev_err(dev, "en = %d, typec disable function\n", val);
+		dev_err(dev, "en = %ld, typec disable function\n", val);
 		if (val)
 			ret = tcpm_typec_disable_function(tcpc, true);
 		else
 			ret = tcpm_typec_disable_function(tcpc, false);
 		if (ret < 0) {
 			dev_err(dev,
-			"en = %d, typec disable function fail(%d)\n", val, ret);
+			"en = %ld, typec disable function fail(%d)\n", val, ret);
 			return -EIO;
 		}
 		break;
