@@ -8,12 +8,6 @@ config AMAZON
 
 if AMAZON
 
-config AMAZON_BOOTUP_KEEP_WATCHDOG
-	bool "Keep watchdog enabled during system bootup"
-	default N
-	---help---
-	  Keep watchdog enabled during system bootup
-
 config AMAZON_LD
 	tristate "Amazon LD Module"
 	depends on TCPC_CLASS
