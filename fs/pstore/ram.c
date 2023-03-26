@@ -39,13 +39,23 @@
 
 #define RAMOOPS_KERNMSG_HDR "===="
 #define MIN_MEM_SIZE 4096UL
+#ifdef __aarch64__
+#ifdef memcpy
+#undef memcpy
+#endif
+#define memcpy memcpy_toio
+#endif
 
 static ulong record_size = MIN_MEM_SIZE;
 module_param(record_size, ulong, 0400);
 MODULE_PARM_DESC(record_size,
 		"size of each dump done on oops/panic");
 
+#ifdef CONFIG_PSTORE_CONSOLE_SIZE
+static ulong ramoops_console_size = CONFIG_PSTORE_CONSOLE_SIZE;
+#else
 static ulong ramoops_console_size = MIN_MEM_SIZE;
+#endif
 module_param_named(console_size, ramoops_console_size, ulong, 0400);
 MODULE_PARM_DESC(console_size, "size of kernel console log");
 
@@ -53,16 +63,28 @@ static ulong ramoops_ftrace_size = MIN_MEM_SIZE;
 module_param_named(ftrace_size, ramoops_ftrace_size, ulong, 0400);
 MODULE_PARM_DESC(ftrace_size, "size of ftrace log");
 
+#ifdef CONFIG_PSTORE_PMSG_SIZE
+static ulong ramoops_pmsg_size = CONFIG_PSTORE_PMSG_SIZE;
+#else
 static ulong ramoops_pmsg_size = MIN_MEM_SIZE;
+#endif
 module_param_named(pmsg_size, ramoops_pmsg_size, ulong, 0400);
 MODULE_PARM_DESC(pmsg_size, "size of user space message log");
 
+#ifdef CONFIG_PSTORE_MEM_ADDR
+static ulong mem_address = CONFIG_PSTORE_MEM_ADDR;
+#else
 static ulong mem_address;
+#endif
 module_param(mem_address, ulong, 0400);
 MODULE_PARM_DESC(mem_address,
 		"start of reserved RAM used to store oops/panic logs");
 
+#ifdef CONFIG_PSTORE_MEM_SIZE
+static ulong mem_size = CONFIG_PSTORE_MEM_SIZE;
+#else
 static ulong mem_size;
+#endif
 module_param(mem_size, ulong, 0400);
 MODULE_PARM_DESC(mem_size,
 		"size of reserved RAM used to store oops/panic logs");
@@ -89,6 +111,7 @@ struct ramoops_context {
 	struct persistent_ram_zone *cprz;
 	struct persistent_ram_zone *fprz;
 	struct persistent_ram_zone *mprz;
+	struct persistent_ram_zone *bprz; /* simple lockless buffer console */
 	phys_addr_t phys_addr;
 	unsigned long size;
 	unsigned int memtype;
@@ -105,6 +128,7 @@ struct ramoops_context {
 	unsigned int console_read_cnt;
 	unsigned int ftrace_read_cnt;
 	unsigned int pmsg_read_cnt;
+	unsigned int bconsole_read_cnt;
 	struct pstore_info pstore;
 };
 
@@ -119,6 +143,7 @@ static int ramoops_pstore_open(struct pstore_info *psi)
 	cxt->console_read_cnt = 0;
 	cxt->ftrace_read_cnt = 0;
 	cxt->pmsg_read_cnt = 0;
+	cxt->bconsole_read_cnt = 0;
 	return 0;
 }
 
@@ -180,12 +205,67 @@ static bool prz_ok(struct persistent_ram_zone *prz)
 			   persistent_ram_ecc_string(prz, NULL, 0));
 }
 
+#define PLAT_LOG_BUFFER_SIZE 4096
+static char plat_log_buf[PLAT_LOG_BUFFER_SIZE + 1];
+static int plat_log_size;
+void ramoops_append_plat_log(const char *fmt, ...)
+{
+	va_list ap;
+
+	if (PLAT_LOG_BUFFER_SIZE - plat_log_size > 0) {
+		va_start(ap, fmt);
+		plat_log_size += vscnprintf(plat_log_buf + plat_log_size, PLAT_LOG_BUFFER_SIZE - plat_log_size, fmt, ap);
+		va_end(ap);
+	}
+}
+
+#define FALLBACK_ORDER (PAGE_ALLOC_COSTLY_ORDER + 1) /* tuning number */
+
+/**
+ * kvmalloc - attempt to allocate physically contiguous memory, but upon
+ * failure, fall back to non-contiguous (vmalloc) allocation.
+ * @size: size of the request.
+ *
+ * Uses kmalloc to get the memory but if the allocation fails then falls back
+ * to the vmalloc allocator. Use kvfree for freeing the memory.
+ *
+ * Return: pointer to the allocated memory of %NULL in case of failure
+ */
+static inline void *kvmalloc(size_t size)
+{
+	gfp_t kmalloc_flags = GFP_KERNEL;
+	void *ret;
+	/*
+	 * We want to attempt a large physically contiguous block first because
+	 * it is less likely to fragment multiple larger blocks and therefore
+	 * contribute to a long term fragmentation less than vmalloc fallback.
+	 * However make sure that larger requests are not too disruptive - no
+	 * OOM killer and no allocation failure warnings as we have a fallback.
+	 */
+	if (get_order(size) >= FALLBACK_ORDER) {
+		kmalloc_flags |= __GFP_NOWARN;
+	}
+
+	ret = kmalloc(size, kmalloc_flags);
+
+	/*
+	 * won't fallback to vmalloc if order < FALLBACK_ORDER
+	 */
+	if (ret || get_order(size) < FALLBACK_ORDER)
+		return ret;
+
+	pr_err("Can't allocate memory by kmalloc, fallback to vmalloc.\n");
+
+	return vmalloc(size);
+
+}
+
 static ssize_t ramoops_pstore_read(u64 *id, enum pstore_type_id *type,
 				   int *count, struct timespec *time,
 				   char **buf, bool *compressed,
 				   struct pstore_info *psi)
 {
-	ssize_t size;
+	ssize_t size, extra_size = 0;
 	ssize_t ecc_notice_size;
 	struct ramoops_context *cxt = psi->data;
 	struct persistent_ram_zone *prz = NULL;
@@ -219,6 +299,14 @@ static ssize_t ramoops_pstore_read(u64 *id, enum pstore_type_id *type,
 	if (!prz_ok(prz))
 		prz = ramoops_get_next_prz(&cxt->cprz, &cxt->console_read_cnt,
 					   1, id, type, PSTORE_TYPE_CONSOLE, 0);
+	if (!prz_ok(prz)) {
+		prz = ramoops_get_next_prz(&cxt->bprz, &cxt->bconsole_read_cnt,
+					   1, id, type, PSTORE_TYPE_CONSOLE, 0);
+		/* pr_notice("pstore: pstore_read bprz type: %d count %d id %llx\n",
+		* *type, cxt->bconsole_read_cnt, *id);
+		*/
+		*id = 2;
+	}
 	if (!prz_ok(prz))
 		prz = ramoops_get_next_prz(&cxt->fprz, &cxt->ftrace_read_cnt,
 					   1, id, type, PSTORE_TYPE_FTRACE, 0);
@@ -233,14 +321,27 @@ static ssize_t ramoops_pstore_read(u64 *id, enum pstore_type_id *type,
 	/* ECC correction notice */
 	ecc_notice_size = persistent_ram_ecc_string(prz, NULL, 0);
 
-	*buf = kmalloc(size + ecc_notice_size + 1, GFP_KERNEL);
-	if (*buf == NULL)
+	if (*type == PSTORE_TYPE_CONSOLE) {
+		extra_size += plat_log_size;
+	}
+
+	*buf = kvmalloc(size + ecc_notice_size + extra_size + 1);
+
+	if (*buf == NULL) {
+		pr_err("ramoops_pstore_read memory allocation failure, order = %d\n",
+			get_order(size + ecc_notice_size + extra_size + 1));
 		return -ENOMEM;
+	}
 
 	memcpy(*buf, (char *)persistent_ram_old(prz) + header_length, size);
 	persistent_ram_ecc_string(prz, *buf + size, ecc_notice_size + 1);
 
-	return size + ecc_notice_size;
+	if (*type == PSTORE_TYPE_CONSOLE && extra_size) {
+		memcpy(*buf + size + ecc_notice_size, plat_log_buf, extra_size);
+		*(char *)(*buf + size + ecc_notice_size + extra_size) = '\0';
+	}
+
+	return size + ecc_notice_size + extra_size;
 }
 
 static size_t ramoops_write_kmsg_hdr(struct persistent_ram_zone *prz,
@@ -278,9 +379,15 @@ static int notrace ramoops_pstore_write_buf(enum pstore_type_id type,
 	size_t hlen;
 
 	if (type == PSTORE_TYPE_CONSOLE) {
-		if (!cxt->cprz)
-			return -ENOMEM;
-		persistent_ram_write(cxt->cprz, buf, size);
+		if (reason == 0) {
+			if (!cxt->cprz)
+				return -ENOMEM;
+			persistent_ram_write(cxt->cprz, buf, size);
+		} else {
+			if (!cxt->bprz)
+				return -ENOMEM;
+			persistent_ram_write(cxt->bprz, buf, size);
+		}
 		return 0;
 	} else if (type == PSTORE_TYPE_FTRACE) {
 		if (!cxt->fprz)
@@ -588,6 +695,9 @@ static int ramoops_probe(struct platform_device *pdev)
 	phys_addr_t paddr;
 	int err = -EINVAL;
 
+	if (!pdata)
+		pdata = pdev->dev.platform_data;
+
 	if (dev->of_node && !pdata) {
 		pdata = devm_kzalloc(&pdev->dev, sizeof(*pdata), GFP_KERNEL);
 		if (!pdata) {
@@ -632,9 +742,11 @@ static int ramoops_probe(struct platform_device *pdev)
 	cxt->dump_oops = pdata->dump_oops;
 	cxt->ecc_info = pdata->ecc_info;
 
+	pr_err("pstore:address is 0x%lx, size is 0x%lx, console_size is 0x%zx, pmsg_size is 0x%zx\n",
+			(unsigned long)cxt->phys_addr, cxt->size, cxt->console_size, cxt->pmsg_size);
 	paddr = cxt->phys_addr;
 
-	dump_mem_sz = cxt->size - cxt->console_size - cxt->ftrace_size
+	dump_mem_sz = cxt->size - cxt->console_size * 2 - cxt->ftrace_size
 			- cxt->pmsg_size;
 	err = ramoops_init_przs(dev, cxt, &paddr, dump_mem_sz);
 	if (err)
@@ -644,6 +756,11 @@ static int ramoops_probe(struct platform_device *pdev)
 			       cxt->console_size, 0);
 	if (err)
 		goto fail_init_cprz;
+
+	err = ramoops_init_prz(dev, cxt, &cxt->bprz, &paddr,
+			       cxt->console_size, 0);
+	if (err)
+		goto fail_init_bprz;
 
 	err = ramoops_init_prz(dev, cxt, &cxt->fprz, &paddr, cxt->ftrace_size,
 			       LINUX_VERSION_CODE);
@@ -704,6 +821,8 @@ fail_clear:
 fail_init_mprz:
 	kfree(cxt->fprz);
 fail_init_fprz:
+	kfree(cxt->bprz);
+fail_init_bprz:
 	kfree(cxt->cprz);
 fail_init_cprz:
 	ramoops_free_przs(cxt);

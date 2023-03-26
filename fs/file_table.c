@@ -142,6 +142,33 @@ struct file *get_empty_filp(void)
 over:
 	/* Ran out of filps - report that */
 	if (get_nr_files() > old_max) {
+#ifdef FD_OVER_CHECK
+		static int fd_dump_all_files;
+
+		if (!fd_dump_all_files) {
+			struct task_struct *p;
+			struct files_struct *files;
+			pid_t pid;
+
+			fd_dump_all_files = 0x1;
+
+			for_each_process(p) {
+				if (p->flags & PF_KTHREAD)
+					continue;
+
+				files = p->files;
+				if (files) {
+					struct fdtable *fdt = files_fdtable(files);
+
+					if (fdt) {
+						pid = p->pid;
+						pr_err("[FDLEAK]dump FDs for [%d:%s]\n", pid, p->comm);
+						fd_show_open_files(pid, files, fdt);
+					}
+				}
+			}
+		}
+#endif
 		pr_info("VFS: file-max limit %lu reached\n", get_max_files());
 		old_max = get_nr_files();
 	}
@@ -261,9 +288,9 @@ void flush_delayed_fput(void)
 
 static DECLARE_DELAYED_WORK(delayed_fput_work, delayed_fput);
 
-void fput(struct file *file)
+void fput_many(struct file *file, unsigned int refs)
 {
-	if (atomic_long_dec_and_test(&file->f_count)) {
+	if (atomic_long_sub_and_test(refs, &file->f_count)) {
 		struct task_struct *task = current;
 
 		if (likely(!in_interrupt() && !(task->flags & PF_KTHREAD))) {
@@ -280,6 +307,11 @@ void fput(struct file *file)
 		if (llist_add(&file->f_u.fu_llist, &delayed_fput_list))
 			schedule_delayed_work(&delayed_fput_work, 1);
 	}
+}
+
+void fput(struct file *file)
+{
+	fput_many(file, 1);
 }
 
 /*
@@ -329,4 +361,4 @@ void __init files_maxfiles_init(void)
 	n = ((totalram_pages - memreserve) * (PAGE_SIZE / 1024)) / 10;
 
 	files_stat.max_files = max_t(unsigned long, n, NR_FILE);
-} 
+}
