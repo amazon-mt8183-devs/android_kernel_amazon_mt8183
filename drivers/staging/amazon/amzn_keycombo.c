@@ -28,10 +28,6 @@
 #include <linux/delay.h>
 #endif
 
-#ifdef CONFIG_AMAZON_SIGN_OF_LIFE
-#include <linux/sign_of_life.h>
-#endif
-
 extern bool check_pwrkey_status(void);
 
 /*
@@ -137,9 +133,6 @@ static void do_power_off(void *data)
 		return;
 	}
 
-#ifdef CONFIG_AMAZON_SIGN_OF_LIFE
-	life_cycle_set_shutdown_reason(SHUTDOWN_BY_LONG_PWR_KEY_PRESS);
-#endif
 	rtc_mark_sw_lprst();
 	orderly_reboot();
 }

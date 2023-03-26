@@ -27,14 +27,6 @@
 #include <asm/system_misc.h>
 #include "../mrdump/mrdump_private.h"
 
-#ifdef CONFIG_AMAZON_SIGN_OF_LIFE
-#include <linux/sign_of_life.h>
-#endif
-
-#ifdef CONFIG_AMZN_SIGN_OF_LIFE
-#include <linux/amzn_sign_of_life.h>
-#endif
-
 int __weak ipanic_atflog_buffer(void *data, unsigned char *buffer, size_t sz_buf)
 {
 	return 0;
@@ -124,10 +116,6 @@ static int common_die(int fiq_step, int reboot_reason, const char *msg,
 	}
 #ifdef CONFIG_MTK_WQ_DEBUG
 	wq_debug_dump();
-#endif
-
-#if defined(CONFIG_AMAZON_SIGN_OF_LIFE) || defined(CONFIG_AMZN_SIGN_OF_LIFE)
-	life_cycle_set_boot_reason(WARMBOOT_BY_KERNEL_PANIC);
 #endif
 
 	mrdump_mini_ke_cpu_regs(regs);

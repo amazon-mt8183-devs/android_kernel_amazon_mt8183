@@ -13,13 +13,6 @@
 #include <mt-plat/charger_type.h>
 #include <mt-plat/mtk_battery.h>
 #include "mtk_battery_internal.h"
-#ifdef CONFIG_AMAZON_SIGN_OF_LIFE
-#include <linux/sign_of_life.h>
-#endif
-
-#ifdef CONFIG_AMZN_SIGN_OF_LIFE
-#include <linux/amzn_sign_of_life.h>
-#endif
 
 #ifdef CONFIG_FB
 #include <linux/notifier.h>
@@ -239,10 +232,6 @@ int bat_metrics_critical_shutdown(void)
 
 #if defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
 	bat_minerva_log("critical_shutdown");
-#endif
-
-#if defined(CONFIG_AMAZON_SIGN_OF_LIFE) || defined(CONFIG_AMZN_SIGN_OF_LIFE)
-	life_cycle_set_special_mode(LIFE_CYCLE_SMODE_LOW_BATTERY);
 #endif
 
 	return 0;

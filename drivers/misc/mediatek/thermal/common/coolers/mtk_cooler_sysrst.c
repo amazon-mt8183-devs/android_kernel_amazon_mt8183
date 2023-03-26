@@ -32,15 +32,7 @@
 #include <linux/reboot.h>
 #include <tscpu_settings.h>
 
-#ifdef CONFIG_AMAZON_SIGN_OF_LIFE
-#include <linux/sign_of_life.h>
-#endif
-
 #include "thermal_core.h"
-
-#ifdef CONFIG_AMZN_SIGN_OF_LIFE
-#include <linux/amzn_sign_of_life.h>
-#endif
 
 /*=============================================================
  *Local variable definition
@@ -100,10 +92,6 @@ static int sysrst_cpu_set_cur_state(struct thermal_cooling_device *cdev, unsigne
 					instance->tz->temperature, instance->trip, trip_temp);
 			}
 		}
-
-#if defined(CONFIG_AMAZON_SIGN_OF_LIFE) || defined(CONFIG_AMZN_SIGN_OF_LIFE)
-		life_cycle_set_thermal_shutdown_reason(THERMAL_SHUTDOWN_REASON_SOC);
-#endif
 
 		kernel_restart(NULL);
 
@@ -179,9 +167,6 @@ static int sysrst_tsap_set_cur_state(struct thermal_cooling_device *cdev, unsign
 					instance->tz->temperature, instance->trip, trip_temp);
 			}
 		}
-#if defined(CONFIG_AMAZON_SIGN_OF_LIFE) || defined(CONFIG_AMZN_SIGN_OF_LIFE)
-		life_cycle_set_thermal_shutdown_reason(THERMAL_SHUTDOWN_REASON_BTS);
-#endif
 		/* To trigger data abort to reset the system
 		 * for thermal protection.
 		 */

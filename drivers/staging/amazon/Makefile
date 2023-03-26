@@ -4,8 +4,6 @@ subdir-ccflags-y += -Werror -I$(srctree)/drivers/misc/mediatek/include/mt-plat/$
 subdir-ccflags-y += -Werror -I$(srctree)/drivers/misc/mediatek/include/mt-plat
 subdir-ccflags-y += -Werror -I$(srctree)/drivers/misc/mediatek/usb_c/tcpc/inc
 
-obj-$(CONFIG_AMAZON_SIGN_OF_LIFE) += sign_of_life.o
-obj-$(CONFIG_AMAZON_SIGN_OF_LIFE_MTK) += sign_of_life_mtk.o
 ifeq ($(or $(strip $(CONFIG_AMAZON_METRICS_LOG)), $(strip $(CONFIG_AMAZON_MINERVA_METRICS_LOG))),y)
 	obj-y += amazon_logger.o
 endif
