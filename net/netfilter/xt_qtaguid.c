@@ -32,7 +32,13 @@
 #if defined(CONFIG_IP6_NF_IPTABLES) || defined(CONFIG_IP6_NF_IPTABLES_MODULE)
 #include <linux/netfilter_ipv6/ip6_tables.h>
 #endif
-
+#ifdef CONFIG_MTK_MD_DIRECT_TETHERING_SUPPORT
+/*Here,mt_ccci_common.h modify to mtk_ccci_common.h in kernel-4.4*/
+#include "../../drivers/misc/mediatek/include/mt-plat/mtk_ccci_common.h"
+/*if kernel version is 3.18, Use this one*/
+/*#include "../../drivers/misc/mediatek/include/mt-plat/mt_ccci_common.h"*/
+#define ENABLE_MDT_DATAUSAGE_DEBUG 0
+#endif
 #include <linux/netfilter/xt_socket.h>
 #include "xt_qtaguid_internal.h"
 #include "xt_qtaguid_print.h"
@@ -673,6 +679,124 @@ static void pp_iface_stat_header(struct seq_file *m)
 	);
 }
 
+#ifdef CONFIG_MTK_MD_DIRECT_TETHERING_SUPPORT
+
+/*MD tethering ccmniX  return X*/
+static int get_ccmni_interface_index(const char *iface)
+{
+	int index = -1;
+	int i, len;
+
+	if (strncmp(iface, "ccmni", 4) != 0)
+		return -1;
+	/* index = 0 1 2 3 4 5 6 7 8*/
+	len = strlen(iface);
+	for (i = 0; i < len; i++) {
+		if (iface[i] >= '0' && iface[i] <= '8') {
+			index = iface[i] - '0';
+			break;
+		}
+	}
+	return index;
+}
+
+static int get_mdtethering_data(char *iface_name, struct mdt_data_t **mdt_sm_data)
+{
+	unsigned char *sm_addr = NULL;
+	unsigned int len;
+	int index = -1;
+
+	if (strncmp(iface_name, "ccmni", 4) != 0) {
+		return -1;
+	}
+	index = get_ccmni_interface_index(iface_name);
+	if (index < 0 || index > 8) {
+		return -2;
+	}
+	sm_addr = (unsigned char *)get_smem_start_addr(MD_SYS1, SMEM_USER_RAW_NETD, &len);
+	if (!sm_addr) {
+		pr_info("[mtk_net][mdt]get shareMemory Error %s\n", iface_name);
+		return -3;
+	}
+	*mdt_sm_data = (struct mdt_data_t *)(sm_addr) + index;
+	return 0;
+}
+
+static void pp_iface_stat_line(struct seq_file *m,
+			       struct iface_stat *iface_entry)
+{
+	struct mdt_data_t *mdt_sm_data = NULL;
+	int res = -1;
+	struct data_counters *cnts;
+	int cnt_set = 0;   /* We only use one set for the device */
+
+	cnts = &iface_entry->totals_via_skb;
+	res = get_mdtethering_data(iface_entry->ifname, &mdt_sm_data);
+#if ENABLE_MDT_DATAUSAGE_DEBUG
+	if (res < 0)
+		pr_info("[mtk_net][mdt]get_mdtethering_data fail %d\n", res);
+	if (mdt_sm_data) {
+		pr_info("[mtk_net][mdt]%s %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu\n",
+			iface_entry->ifname,
+			mdt_sm_data->total_rx_bytes,
+			mdt_sm_data->total_rx_pkts,
+			mdt_sm_data->total_tx_bytes,
+			mdt_sm_data->total_tx_pkts,
+			mdt_sm_data->rx_tcp_bytes,
+			mdt_sm_data->rx_tcp_pkts,
+			mdt_sm_data->rx_udp_bytes,
+			mdt_sm_data->rx_udp_pkts,
+			mdt_sm_data->rx_others_bytes,
+			mdt_sm_data->rx_others_pkts,
+			mdt_sm_data->tx_tcp_bytes,
+			mdt_sm_data->tx_tcp_pkts,
+			mdt_sm_data->tx_udp_bytes,
+			mdt_sm_data->tx_udp_pkts,
+			mdt_sm_data->tx_others_bytes,
+			mdt_sm_data->tx_others_pkts);
+	}
+#endif
+	if (!mdt_sm_data) {
+		seq_printf(m, "%s %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu\n",
+			   iface_entry->ifname,
+			   dc_sum_bytes(cnts, cnt_set, IFS_RX),
+			   dc_sum_packets(cnts, cnt_set, IFS_RX),
+			   dc_sum_bytes(cnts, cnt_set, IFS_TX),
+			   dc_sum_packets(cnts, cnt_set, IFS_TX),
+			   cnts->bpc[cnt_set][IFS_RX][IFS_TCP].bytes,
+			   cnts->bpc[cnt_set][IFS_RX][IFS_TCP].packets,
+			   cnts->bpc[cnt_set][IFS_RX][IFS_UDP].bytes,
+			   cnts->bpc[cnt_set][IFS_RX][IFS_UDP].packets,
+			   cnts->bpc[cnt_set][IFS_RX][IFS_PROTO_OTHER].bytes,
+			   cnts->bpc[cnt_set][IFS_RX][IFS_PROTO_OTHER].packets,
+			   cnts->bpc[cnt_set][IFS_TX][IFS_TCP].bytes,
+			   cnts->bpc[cnt_set][IFS_TX][IFS_TCP].packets,
+			   cnts->bpc[cnt_set][IFS_TX][IFS_UDP].bytes,
+			   cnts->bpc[cnt_set][IFS_TX][IFS_UDP].packets,
+			   cnts->bpc[cnt_set][IFS_TX][IFS_PROTO_OTHER].bytes,
+			   cnts->bpc[cnt_set][IFS_TX][IFS_PROTO_OTHER].packets);
+	} else {
+		seq_printf(m, "%s %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu %llu\n",
+			   iface_entry->ifname,
+			   dc_sum_bytes(cnts, cnt_set, IFS_RX) + mdt_sm_data->total_rx_bytes,
+			   dc_sum_packets(cnts, cnt_set, IFS_RX) + mdt_sm_data->total_rx_pkts,
+			   dc_sum_bytes(cnts, cnt_set, IFS_TX) + mdt_sm_data->total_tx_bytes,
+			   dc_sum_packets(cnts, cnt_set, IFS_TX) + mdt_sm_data->total_tx_pkts,
+			   cnts->bpc[cnt_set][IFS_RX][IFS_TCP].bytes + mdt_sm_data->rx_tcp_bytes,
+			   cnts->bpc[cnt_set][IFS_RX][IFS_TCP].packets + mdt_sm_data->rx_tcp_pkts,
+			   cnts->bpc[cnt_set][IFS_RX][IFS_UDP].bytes + mdt_sm_data->rx_udp_bytes,
+			   cnts->bpc[cnt_set][IFS_RX][IFS_UDP].packets + mdt_sm_data->rx_udp_pkts,
+			   cnts->bpc[cnt_set][IFS_RX][IFS_PROTO_OTHER].bytes + mdt_sm_data->rx_others_bytes,
+			   cnts->bpc[cnt_set][IFS_RX][IFS_PROTO_OTHER].packets + mdt_sm_data->rx_others_pkts,
+			   cnts->bpc[cnt_set][IFS_TX][IFS_TCP].bytes + mdt_sm_data->tx_tcp_bytes,
+			   cnts->bpc[cnt_set][IFS_TX][IFS_TCP].packets + mdt_sm_data->tx_tcp_pkts,
+			   cnts->bpc[cnt_set][IFS_TX][IFS_UDP].bytes + mdt_sm_data->tx_udp_bytes,
+			   cnts->bpc[cnt_set][IFS_TX][IFS_UDP].packets + mdt_sm_data->tx_udp_pkts,
+			   cnts->bpc[cnt_set][IFS_TX][IFS_PROTO_OTHER].bytes + mdt_sm_data->tx_others_bytes,
+			   cnts->bpc[cnt_set][IFS_TX][IFS_PROTO_OTHER].packets + mdt_sm_data->tx_others_pkts);
+		}
+}
+#else
 static void pp_iface_stat_line(struct seq_file *m,
 			       struct iface_stat *iface_entry)
 {
@@ -699,6 +823,7 @@ static void pp_iface_stat_line(struct seq_file *m,
 		   cnts->bpc[cnt_set][IFS_TX][IFS_PROTO_OTHER].bytes,
 		   cnts->bpc[cnt_set][IFS_TX][IFS_PROTO_OTHER].packets);
 }
+#endif
 
 struct proc_iface_stat_fmt_info {
 	int fmt;
@@ -758,6 +883,36 @@ static int iface_stat_fmt_proc_show(struct seq_file *m, void *v)
 	 * string.
 	 */
 	if (p->fmt == 1) {
+#ifdef CONFIG_MTK_MD_DIRECT_TETHERING_SUPPORT
+		/*MD tethering*/
+		struct mdt_data_t *mdt_sm_data = NULL;
+		int res = -1;
+
+		res = get_mdtethering_data(iface_entry->ifname, &mdt_sm_data);
+		if (!mdt_sm_data) {
+			seq_printf(m, "%s %d %llu %llu %llu %llu %llu %llu %llu %llu\n",
+				   iface_entry->ifname,
+				   iface_entry->active,
+				   iface_entry->totals_via_dev[IFS_RX].bytes,
+				   iface_entry->totals_via_dev[IFS_RX].packets,
+				   iface_entry->totals_via_dev[IFS_TX].bytes,
+				   iface_entry->totals_via_dev[IFS_TX].packets,
+				   stats->rx_bytes, stats->rx_packets,
+				   stats->tx_bytes, stats->tx_packets);
+		} else {
+			seq_printf(m, "%s %d %llu %llu %llu %llu %llu %llu %llu %llu\n",
+				   iface_entry->ifname,
+				   iface_entry->active,
+				   iface_entry->totals_via_dev[IFS_RX].bytes,
+				   iface_entry->totals_via_dev[IFS_RX].packets,
+				   iface_entry->totals_via_dev[IFS_TX].bytes,
+				   iface_entry->totals_via_dev[IFS_TX].packets,
+				   stats->rx_bytes + mdt_sm_data->total_rx_bytes,
+				   stats->rx_packets + mdt_sm_data->total_rx_pkts,
+				   stats->tx_bytes + mdt_sm_data->total_tx_bytes,
+				   stats->tx_packets + mdt_sm_data->total_tx_pkts);
+		}
+#else
 		seq_printf(m, "%s %d %llu %llu %llu %llu %llu %llu %llu %llu\n",
 			   iface_entry->ifname,
 			   iface_entry->active,
@@ -768,6 +923,8 @@ static int iface_stat_fmt_proc_show(struct seq_file *m, void *v)
 			   stats->rx_bytes, stats->rx_packets,
 			   stats->tx_bytes, stats->tx_packets
 			   );
+#endif
+
 	} else {
 		pp_iface_stat_line(m, iface_entry);
 	}
@@ -1067,18 +1224,6 @@ static struct sock_tag *get_sock_stat_nl(const struct sock *sk)
 	return sock_tag_tree_search(&sock_tag_tree, sk);
 }
 
-static struct sock_tag *get_sock_stat(const struct sock *sk)
-{
-	struct sock_tag *sock_tag_entry;
-	MT_DEBUG("qtaguid: get_sock_stat(sk=%p)\n", sk);
-	if (!sk)
-		return NULL;
-	spin_lock_bh(&sock_tag_list_lock);
-	sock_tag_entry = get_sock_stat_nl(sk);
-	spin_unlock_bh(&sock_tag_list_lock);
-	return sock_tag_entry;
-}
-
 static int ipx_proto(const struct sk_buff *skb,
 		     struct xt_action_param *par)
 {
@@ -1310,12 +1455,15 @@ static void if_tag_stat_update(const char *ifname, uid_t uid,
 	 * Look for a tagged sock.
 	 * It will have an acct_uid.
 	 */
-	sock_tag_entry = get_sock_stat(sk);
+	spin_lock_bh(&sock_tag_list_lock);
+	sock_tag_entry = sk ? get_sock_stat_nl(sk) : NULL;
 	if (sock_tag_entry) {
 		tag = sock_tag_entry->tag;
 		acct_tag = get_atag_from_tag(tag);
 		uid_tag = get_utag_from_tag(tag);
-	} else {
+	}
+	spin_unlock_bh(&sock_tag_list_lock);
+	if (!sock_tag_entry) {
 		acct_tag = make_atag_from_value(0);
 		tag = combine_atag_with_uid(acct_tag, uid);
 		uid_tag = make_tag_from_uid(uid);
@@ -2412,15 +2560,20 @@ int qtaguid_untag(struct socket *el_socket, bool kernel)
 	 * At first, we want to catch user-space code that is not
 	 * opening the /dev/xt_qtaguid.
 	 */
-	if (IS_ERR_OR_NULL(pqd_entry) || !sock_tag_entry->list.next) {
+	if (IS_ERR_OR_NULL(pqd_entry))
 		pr_warn_once("qtaguid: %s(): "
 			     "User space forgot to open /dev/xt_qtaguid? "
 			     "pid=%u tgid=%u sk_pid=%u, uid=%u\n", __func__,
 			     current->pid, current->tgid, sock_tag_entry->pid,
 			     from_kuid(&init_user_ns, current_fsuid()));
-	} else {
+	/*
+	 * This check is needed because tagging from a process that
+	 * didn’t open /dev/xt_qtaguid still adds the sock_tag_entry
+	 * to sock_tag_tree.
+	 */
+	if (sock_tag_entry->list.next)
 		list_del(&sock_tag_entry->list);
-	}
+
 	spin_unlock_bh(&uid_tag_data_tree_lock);
 	/*
 	 * We don't free tag_ref from the utd_entry here,
@@ -2529,7 +2682,7 @@ static int pp_stats_line(struct seq_file *m, struct tag_stat *ts_entry,
 	uid_t stat_uid = get_uid_from_tag(tag);
 	struct proc_print_info *ppi = m->private;
 	/* Detailed tags are not available to everybody */
-	if (!can_read_other_uid_stats(make_kuid(&init_user_ns,stat_uid))) {
+	if (!can_read_other_uid_stats(make_kuid(&init_user_ns, stat_uid))) {
 		CT_DEBUG("qtaguid: stats line: "
 			 "%s 0x%llx %u: insufficient priv "
 			 "from pid=%u tgid=%u uid=%u stats.gid=%u\n",

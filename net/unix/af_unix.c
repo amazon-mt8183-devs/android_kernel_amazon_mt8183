@@ -118,6 +118,8 @@
 #include <linux/security.h>
 #include <linux/freezer.h>
 
+#include "scm.h"
+
 struct hlist_head unix_socket_table[2 * UNIX_HASH_SIZE];
 EXPORT_SYMBOL_GPL(unix_socket_table);
 DEFINE_SPINLOCK(unix_table_lock);
@@ -1170,6 +1172,18 @@ restart:
 		unix_peer(sk) = other;
 		unix_state_double_unlock(sk, other);
 	}
+
+#ifdef CONFIG_MTK_NET_LOGGING
+	if (SOCK_INODE(sock) && sunaddr && other && (other->sk_socket) &&
+	    SOCK_INODE(other->sk_socket)) {
+		if (!strstr(sunaddr->sun_path, "logdw")) {
+			pr_debug_ratelimited("[mtk_net][socket]unix_dgram_connect[%lu]:connect [%s] other:[%lu]\n",
+					     SOCK_INODE(sock)->i_ino, sunaddr->sun_path,
+					     SOCK_INODE(other->sk_socket)->i_ino);
+		}
+	}
+#endif
+
 	return 0;
 
 out_unlock:
@@ -1179,11 +1193,45 @@ out:
 	return err;
 }
 
+#ifdef CONFIG_MTK_NET_LOGGING
+struct wait_for_peer_info_t {
+	char process[20];
+	int pid;
+	unsigned long when;
+};
+
+static void print_wait_peer_sock_info(unsigned long data)
+{
+	struct wait_for_peer_info_t *wait_info = (struct wait_for_peer_info_t *)data;
+	unsigned long time = jiffies - wait_info->when;
+
+	/*Compatible 32bit projet and 64 bit project*/
+	do_div(time, HZ);
+	pr_info("----------------------wait for peer block info-----------------------\n");
+	pr_info("[mtk_net][sock]sockdbg %s[%d] is blocking because wait for peer more than %ld sec\n",
+		wait_info->process, wait_info->pid, time);
+}
+#endif
+
 static long unix_wait_for_peer(struct sock *other, long timeo)
 {
 	struct unix_sock *u = unix_sk(other);
 	int sched;
 	DEFINE_WAIT(wait);
+
+#ifdef CONFIG_MTK_NET_LOGGING
+	struct timer_list wait_peer_timer;
+	struct wait_for_peer_info_t wait_sk_info;
+
+	wait_sk_info.pid = current->pid;
+	strncpy(wait_sk_info.process, current->comm, sizeof(wait_sk_info.process));
+	wait_sk_info.when = jiffies;
+	init_timer_on_stack(&wait_peer_timer);
+	wait_peer_timer.function = print_wait_peer_sock_info;
+	wait_peer_timer.expires = jiffies + 10 * HZ;
+	wait_peer_timer.data = (unsigned long)&wait_sk_info;
+	add_timer(&wait_peer_timer);
+#endif
 
 	prepare_to_wait_exclusive(&u->peer_wait, &wait, TASK_INTERRUPTIBLE);
 
@@ -1197,6 +1245,10 @@ static long unix_wait_for_peer(struct sock *other, long timeo)
 		timeo = schedule_timeout(timeo);
 
 	finish_wait(&u->peer_wait, &wait);
+#ifdef CONFIG_MTK_NET_LOGGING
+	del_timer(&wait_peer_timer);
+	destroy_timer_on_stack(&wait_peer_timer);
+#endif
 	return timeo;
 }
 
@@ -1358,6 +1410,20 @@ restart:
 	__skb_queue_tail(&other->sk_receive_queue, skb);
 	spin_unlock(&other->sk_receive_queue.lock);
 	unix_state_unlock(other);
+
+#ifdef CONFIG_MTK_NET_LOGGING
+	if (SOCK_INODE(sock) && sunaddr && (other->sk_socket) &&
+	    SOCK_INODE(other->sk_socket)) {
+		unsigned long sk_ino = SOCK_INODE(sock)->i_ino;
+		unsigned long other_ino = SOCK_INODE(other->sk_socket)->i_ino;
+
+		if (!strstr(sunaddr->sun_path, "property_service") && !strstr(sunaddr->sun_path, "fwmarkd")) {
+			pr_debug_ratelimited("[mtk_net][socket]unix_stream_connect[%lu ]: connect [%s] other[%lu]\n",
+					     sk_ino, sunaddr->sun_path, other_ino);
+			}
+	}
+#endif
+
 	other->sk_data_ready(other);
 	sock_put(other);
 	return 0;
@@ -1485,81 +1551,51 @@ out:
 	return err;
 }
 
-static void unix_detach_fds(struct scm_cookie *scm, struct sk_buff *skb)
+static void unix_peek_fds(struct scm_cookie *scm, struct sk_buff *skb)
 {
-	int i;
-
-	scm->fp = UNIXCB(skb).fp;
-	UNIXCB(skb).fp = NULL;
-
-	for (i = scm->fp->count-1; i >= 0; i--)
-		unix_notinflight(scm->fp->user, scm->fp->fp[i]);
-}
-
-static void unix_destruct_scm(struct sk_buff *skb)
-{
-	struct scm_cookie scm;
-	memset(&scm, 0, sizeof(scm));
-	scm.pid  = UNIXCB(skb).pid;
-	if (UNIXCB(skb).fp)
-		unix_detach_fds(&scm, skb);
-
-	/* Alas, it calls VFS */
-	/* So fscking what? fput() had been SMP-safe since the last Summer */
-	scm_destroy(&scm);
-	sock_wfree(skb);
-}
-
-/*
- * The "user->unix_inflight" variable is protected by the garbage
- * collection lock, and we just read it locklessly here. If you go
- * over the limit, there might be a tiny race in actually noticing
- * it across threads. Tough.
- */
-static inline bool too_many_unix_fds(struct task_struct *p)
-{
-	struct user_struct *user = current_user();
-
-	if (unlikely(user->unix_inflight > task_rlimit(p, RLIMIT_NOFILE)))
-		return !capable(CAP_SYS_RESOURCE) && !capable(CAP_SYS_ADMIN);
-	return false;
-}
-
-#define MAX_RECURSION_LEVEL 4
-
-static int unix_attach_fds(struct scm_cookie *scm, struct sk_buff *skb)
-{
-	int i;
-	unsigned char max_level = 0;
-	int unix_sock_count = 0;
-
-	if (too_many_unix_fds(current))
-		return -ETOOMANYREFS;
-
-	for (i = scm->fp->count - 1; i >= 0; i--) {
-		struct sock *sk = unix_get_socket(scm->fp->fp[i]);
-
-		if (sk) {
-			unix_sock_count++;
-			max_level = max(max_level,
-					unix_sk(sk)->recursion_level);
-		}
-	}
-	if (unlikely(max_level > MAX_RECURSION_LEVEL))
-		return -ETOOMANYREFS;
+	scm->fp = scm_fp_dup(UNIXCB(skb).fp);
 
 	/*
-	 * Need to duplicate file references for the sake of garbage
-	 * collection.  Otherwise a socket in the fps might become a
-	 * candidate for GC while the skb is not yet queued.
+	 * Garbage collection of unix sockets starts by selecting a set of
+	 * candidate sockets which have reference only from being in flight
+	 * (total_refs == inflight_refs).  This condition is checked once during
+	 * the candidate collection phase, and candidates are marked as such, so
+	 * that non-candidates can later be ignored.  While inflight_refs is
+	 * protected by unix_gc_lock, total_refs (file count) is not, hence this
+	 * is an instantaneous decision.
+	 *
+	 * Once a candidate, however, the socket must not be reinstalled into a
+	 * file descriptor while the garbage collection is in progress.
+	 *
+	 * If the above conditions are met, then the directed graph of
+	 * candidates (*) does not change while unix_gc_lock is held.
+	 *
+	 * Any operations that changes the file count through file descriptors
+	 * (dup, close, sendmsg) does not change the graph since candidates are
+	 * not installed in fds.
+	 *
+	 * Dequeing a candidate via recvmsg would install it into an fd, but
+	 * that takes unix_gc_lock to decrement the inflight count, so it's
+	 * serialized with garbage collection.
+	 *
+	 * MSG_PEEK is special in that it does not change the inflight count,
+	 * yet does install the socket into an fd.  The following lock/unlock
+	 * pair is to ensure serialization with garbage collection.  It must be
+	 * done between incrementing the file count and installing the file into
+	 * an fd.
+	 *
+	 * If garbage collection starts after the barrier provided by the
+	 * lock/unlock, then it will see the elevated refcount and not mark this
+	 * as a candidate.  If a garbage collection is already in progress
+	 * before the file count was incremented, then the lock/unlock pair will
+	 * ensure that garbage collection is finished before progressing to
+	 * installing the fd.
+	 *
+	 * (*) A -> B where B is on the queue of A or B is on the queue of C
+	 * which is on the queue of listening socket A.
 	 */
-	UNIXCB(skb).fp = scm_fp_dup(scm->fp);
-	if (!UNIXCB(skb).fp)
-		return -ENOMEM;
-
-	for (i = scm->fp->count - 1; i >= 0; i--)
-		unix_inflight(scm->fp->user, scm->fp->fp[i]);
-	return max_level;
+	spin_lock(&unix_gc_lock);
+	spin_unlock(&unix_gc_lock);
 }
 
 static int unix_scm_to_skb(struct scm_cookie *scm, struct sk_buff *skb, bool send_fds)
@@ -2186,7 +2222,7 @@ static int unix_dgram_recvmsg(struct socket *sock, struct msghdr *msg,
 		sk_peek_offset_fwd(sk, size);
 
 		if (UNIXCB(skb).fp)
-			scm.fp = scm_fp_dup(UNIXCB(skb).fp);
+			unix_peek_fds(&scm, skb);
 	}
 	err = (flags & MSG_TRUNC) ? skb->len - skip : size;
 
@@ -2431,7 +2467,7 @@ unlock:
 			/* It is questionable, see note in unix_dgram_recvmsg.
 			 */
 			if (UNIXCB(skb).fp)
-				scm.fp = scm_fp_dup(UNIXCB(skb).fp);
+				unix_peek_fds(&scm, skb);
 
 			sk_peek_offset_fwd(sk, chunk);
 
@@ -2801,6 +2837,85 @@ static void unix_seq_stop(struct seq_file *seq, void *v)
 	spin_unlock(&unix_table_lock);
 }
 
+#ifdef CONFIG_MTK_NET_LOGGING
+static int unix_seq_show(struct seq_file *seq, void *v)
+{
+	if (v == SEQ_START_TOKEN)
+		seq_puts(seq,
+			 "Num       RefCount Protocol Flags    Type St    Inode PeerNode Path  PeerPath\n");
+	else {
+		struct sock *s = v;
+		struct unix_sock *u = unix_sk(s);
+
+		unix_state_lock(s);
+		if (u->peer) {
+			seq_printf(seq, "%pK: %08X %08X %08X %04X %02X %5lu %5lu",
+				   s,
+				   atomic_read(&s->sk_refcnt),
+				   0,
+				   s->sk_state == TCP_LISTEN ? __SO_ACCEPTCON : 0,
+				   s->sk_type,
+				   s->sk_socket ?
+				   (s->sk_state == TCP_ESTABLISHED ? SS_CONNECTED : SS_UNCONNECTED) :
+				   (s->sk_state == TCP_ESTABLISHED ? SS_CONNECTING : SS_DISCONNECTING),
+				   sock_i_ino(s),
+				   sock_i_ino(u->peer));
+		} else {
+			seq_printf(seq, "%pK: %08X %08X %08X %04X %02X %5lu %d",
+				   s,
+				   atomic_read(&s->sk_refcnt),
+				   0,
+				   s->sk_state == TCP_LISTEN ? __SO_ACCEPTCON : 0,
+				   s->sk_type,
+				   s->sk_socket ?
+				   (s->sk_state == TCP_ESTABLISHED ? SS_CONNECTED : SS_UNCONNECTED) :
+				   (s->sk_state == TCP_ESTABLISHED ? SS_CONNECTING : SS_DISCONNECTING),
+				   sock_i_ino(s),
+				   0);
+			}
+			if (u->addr) {
+				int i, len;
+
+				seq_putc(seq, ' ');
+				i = 0;
+				len = u->addr->len - sizeof(short);
+				if (!UNIX_ABSTRACT(s)) {
+					len--;
+				} else {
+					seq_putc(seq, '@');
+					i++;
+				}
+				for ( ; i < len; i++)
+					seq_putc(seq, u->addr->name->sun_path[i]);
+			}
+
+			if (u->peer) {
+				struct unix_sock *pu = unix_sk(u->peer);
+
+				if (pu->addr) {
+					int a, length;
+
+					seq_putc(seq, ' ');
+					seq_putc(seq, '*');
+					a = 0;
+					length = pu->addr->len - sizeof(short);
+					if (!UNIX_ABSTRACT(u->peer)) {
+						length--;
+					} else {
+						seq_putc(seq, '@');
+						a++;
+				}
+				for ( ; a < length; a++)
+					seq_putc(seq, pu->addr->name->sun_path[a]);
+				}
+}
+
+			unix_state_unlock(s);
+			seq_putc(seq, '\n');
+		}
+		return 0;
+}
+#else
 static int unix_seq_show(struct seq_file *seq, void *v)
 {
 
@@ -2844,6 +2959,7 @@ static int unix_seq_show(struct seq_file *seq, void *v)
 
 	return 0;
 }
+#endif
 
 static const struct seq_operations unix_seq_ops = {
 	.start  = unix_seq_start,

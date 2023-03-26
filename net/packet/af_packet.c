@@ -587,7 +587,8 @@ static int prb_calc_retire_blk_tmo(struct packet_sock *po,
 			msec = 1;
 			div = speed / 1000;
 		}
-	}
+	} else
+		return DEFAULT_PRB_RETIRE_TOV;
 
 	mbits = (blk_size_in_bytes * 8) / (1024 * 1024);
 
@@ -2148,6 +2149,14 @@ static int tpacket_rcv(struct sk_buff *skb, struct net_device *dev,
 			skb_pull(skb, skb_network_offset(skb));
 		}
 	}
+
+	/* gro on: clatd checksum fail patch
+	* if is nornal and gro packet, not calculate tcp's checksum
+	*/
+	if (skb->ip_summed == CHECKSUM_UNNECESSARY ||
+	    (NAPI_GRO_CB(skb)->count > 1 &&
+	    (skb->dev && skb->dev->features & (1 << NETIF_F_GRO_BIT))))
+		status |= TP_STATUS_CSUM_VALID;
 
 	snaplen = skb->len;
 

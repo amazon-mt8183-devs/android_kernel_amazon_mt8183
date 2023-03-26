@@ -1234,9 +1234,9 @@ TRACE_EVENT(rdev_connect,
 		__entry->flags = sme->flags;
 	),
 	TP_printk(WIPHY_PR_FMT ", " NETDEV_PR_FMT ", bssid: " MAC_PR_FMT
-		  ", ssid: %s, auth type: %d, privacy: %s, wpa versions: %u, "
+		  ", ssid: XXXXXX, auth type: %d, privacy: %s, wpa versions: %u, "
 		  "flags: %u",
-		  WIPHY_PR_ARG, NETDEV_PR_ARG, MAC_PR_ARG(bssid), __entry->ssid,
+		  WIPHY_PR_ARG, NETDEV_PR_ARG, MAC_PR_ARG(bssid),
 		  __entry->auth_type, BOOL_TO_STR(__entry->privacy),
 		  __entry->wpa_versions, __entry->flags)
 );
@@ -2818,6 +2818,10 @@ TRACE_EVENT(cfg80211_stop_iface,
 		  WIPHY_PR_ARG, WDEV_PR_ARG)
 );
 
+DEFINE_EVENT(wiphy_wdev_evt, rdev_abort_scan,
+	TP_PROTO(struct wiphy *wiphy, struct wireless_dev *wdev),
+	TP_ARGS(wiphy, wdev)
+);
 #endif /* !__RDEV_OPS_TRACE || TRACE_HEADER_MULTI_READ */
 
 #undef TRACE_INCLUDE_PATH
