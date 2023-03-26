@@ -30,21 +30,6 @@
 
 #include <linux/thermal_framework.h>
 
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-#include <linux/metricslog.h>
-#define VIRTUAL_SENSOR_METRICS_STR_LEN 128
-static unsigned long virtual_sensor_temp = 25000;
-
-/*
- * Define the metrics log printing interval.
- * If virtual sensor throttles, the interval
- * is 0x3F*3 seconds(3 means polling interval of virtual_sensor).
- * If doesn't throttle, the interval is 0x3FF*3 seconds.
- */
-#define VIRTUAL_SENSOR_THROTTLE_TIME_MASK 0x3F
-#define VIRTUAL_SENSOR_UNTHROTTLE_TIME_MASK 0x3FF
-#endif
-
 #include "thermal_core.h"
 
 #define DRIVER_NAME "virtual_sensor-thermal"
@@ -56,14 +41,6 @@ static unsigned long virtual_sensor_temp = 25000;
 
 static DEFINE_MUTEX(therm_lock);
 static unsigned int virtual_sensor_nums;
-
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-unsigned long get_virtualsensor_temp(void)
-{
-	return virtual_sensor_temp/1000;
-}
-EXPORT_SYMBOL(get_virtualsensor_temp);
-#endif
 
 static int level_cmp(void *priv, struct list_head *a, struct list_head *b)
 {
@@ -140,46 +117,12 @@ static int virtual_sensor_thermal_get_temp(struct thermal_zone_device *thermal,
 	long temp = 0;
 	long tempv = 0;
 	int alpha, offset, weight;
-#ifdef CONFIG_AMAZON_METRICS_LOG
-	char buf[VIRTUAL_SENSOR_METRICS_STR_LEN];
-#endif
-#ifdef CONFIG_AMAZON_MINERVA_METRICS_LOG
-	char key_buf[128];
-#endif
 
 	if (!tzone || !pdata)
 		return -EINVAL;
 
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-	atomic_inc(&tzone->query_count);
-#endif
-
 	list_for_each_entry(tdev, &pdata->ts_list, node) {
 		temp = tdev->dev_ops->get_temp(tdev);
-#ifdef CONFIG_AMAZON_METRICS_LOG
-		/* Log in metrics around every 50 mins normally
-			and 3 mins wheny throttling */
-		if (!(atomic_read(&tzone->query_count) & tzone->mask)) {
-			snprintf(buf, VIRTUAL_SENSOR_METRICS_STR_LEN,
-				"%s:%s_%s_temp=%ld;CT;1:NR",
-				PREFIX, thermal->type, tdev->name, temp);
-			log_to_metrics(ANDROID_LOG_INFO, "ThermalEvent", buf);
-		}
-#endif
-#ifdef CONFIG_AMAZON_MINERVA_METRICS_LOG
-		/*
-		 * Log in metrics around every 1 hour normally
-		 * and 3 mins wheny throttling
-		 */
-		if (!(atomic_read(&tzone->query_count) & tzone->mask)) {
-			snprintf(key_buf, 128, "%s_%s_temp", thermal->type, tdev->name);
-			minerva_counter_to_vitals(ANDROID_LOG_INFO,
-				VITALS_THERMAL_GROUP_ID, VITALS_THERMAL_SENSOR_SCHEMA_ID,
-				"thermal", "thermal", "thermalsensor",
-				key_buf, temp, "temp", NULL, VITALS_NORMAL,
-				NULL, NULL);
-		}
-#endif
 		alpha = tdev->tdp->alpha;
 		offset = tdev->tdp->offset;
 		weight = tdev->tdp->weight;
@@ -194,45 +137,7 @@ static int virtual_sensor_thermal_get_temp(struct thermal_zone_device *thermal,
 		tempv += (weight * tdev->off_temp)/DMF;
 	}
 
-#ifdef CONFIG_AMAZON_METRICS_LOG
-	/* Log in metrics around every 50 mins normally
-		and 3 mins wheny throttling */
-	if (!(atomic_read(&tzone->query_count) & tzone->mask)) {
-		snprintf(buf, VIRTUAL_SENSOR_METRICS_STR_LEN,
-			"%s:%s_temp=%ld;CT;1:NR",
-			PREFIX, thermal->type, tempv);
-		log_to_metrics(ANDROID_LOG_INFO, "ThermalEvent", buf);
-	}
-
-	if (tempv > pdata->trips[0].temp)
-		tzone->mask = VIRTUAL_SENSOR_THROTTLE_TIME_MASK;
-	else
-		tzone->mask = VIRTUAL_SENSOR_UNTHROTTLE_TIME_MASK;
-#endif
-#ifdef CONFIG_AMAZON_MINERVA_METRICS_LOG
-	/*
-	 * Log in metrics around every 1 hour normally
-	 * and 3 mins wheny throttling
-	 */
-	if (!(atomic_read(&tzone->query_count) & tzone->mask)) {
-		snprintf(key_buf, 128, "%s_temp", thermal->type);
-		minerva_counter_to_vitals(ANDROID_LOG_INFO,
-			VITALS_THERMAL_GROUP_ID, VITALS_THERMAL_SENSOR_SCHEMA_ID,
-			"thermal", "thermal", "thermalsensor",
-			key_buf, tempv, "temp", NULL, VITALS_NORMAL,
-			NULL, NULL);
-	}
-
-	if (tempv > pdata->trips[0].temp)
-		tzone->mask = VIRTUAL_SENSOR_THROTTLE_TIME_MASK;
-	else
-		tzone->mask = VIRTUAL_SENSOR_UNTHROTTLE_TIME_MASK;
-#endif
-
 	*t = (unsigned long) tempv;
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-	virtual_sensor_temp = (unsigned long)tempv;
-#endif
 
 	return 0;
 }
@@ -774,9 +679,6 @@ static int virtual_sensor_thermal_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 	tzone->tz->trips = pdata->num_trips;
-#ifdef CONFIG_AMAZON_METRICS_LOG
-	tzone->mask = VIRTUAL_SENSOR_UNTHROTTLE_TIME_MASK;
-#endif
 	ret = virtual_sensor_create_sysfs(tzone);
 	INIT_WORK(&tzone->therm_work, virtual_sensor_thermal_work);
 	platform_set_drvdata(pdev, tzone);

@@ -20,11 +20,6 @@
 #include "thermal_core.h"
 #include <linux/thermal_framework.h>
 
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-#include <linux/metricslog.h>
-#define VIRTUAL_SENSOR_GOV_METRICS_STR_LEN 128
-#endif
-
 #define PREFIX "thermalthrottle:def"
 
 /**
@@ -43,13 +38,6 @@ static int virtual_sensor_throttle(struct thermal_zone_device *tz, int trip)
 	char *envp[] = { data[0], data[1], data[2], NULL };
 	unsigned long max_state;
 	unsigned long cur_state;
-#ifdef CONFIG_AMAZON_METRICS_LOG
-	char buf[VIRTUAL_SENSOR_GOV_METRICS_STR_LEN];
-#endif
-#ifdef CONFIG_AMAZON_MINERVA_METRICS_LOG
-	char key_buf[128];
-	char dimensions_buf[128];
-#endif
 	struct virtual_sensor_thermal_zone *tzone = tz->devdata;
 	struct mtk_thermal_platform_data *pdata = tzone->pdata;
 
@@ -112,41 +100,9 @@ static int virtual_sensor_throttle(struct thermal_zone_device *tz, int trip)
 			if (target) {
 				pr_warning("VS cooler %s throttling, cur_temp=%d, trip_temp=%d, target=%lu\n",
 							cdev->type, tz->temperature, temp, target);
-#ifdef CONFIG_AMAZON_METRICS_LOG
-				snprintf(buf, VIRTUAL_SENSOR_GOV_METRICS_STR_LEN,
-				"%s:vs_cooler_%s_throttling,cur_temp=%d;trip_temp=%d;target=%lu;CT;1:NR",
-					PREFIX, cdev->type, tz->temperature, temp, target);
-				log_to_metrics(ANDROID_LOG_INFO, "ThermalEvent", buf);
-#endif
-#ifdef CONFIG_AMAZON_MINERVA_METRICS_LOG
-				snprintf(key_buf, 128, "vs_cooler_%s_throttling", cdev->type);
-				snprintf(dimensions_buf, 128, "\"trip_temp\"#\"%d\"$\"target\"#\"%lu\"",
-						temp, target);
-				minerva_counter_to_vitals(ANDROID_LOG_INFO,
-						VITALS_THERMAL_GROUP_ID, VITALS_THERMAL_THROTTLE_SCHEMA_ID,
-						"thermal", "thermal", "thermalthrottle",
-						key_buf, tz->temperature, "temp",
-						NULL, VITALS_NORMAL, dimensions_buf, NULL);
-#endif
 			} else {
 				pr_warning("VS cooler %s unthrottling, cur_temp=%d, trip_temp=%d, target=%lu\n",
 							cdev->type, tz->temperature, temp, target);
-#ifdef CONFIG_AMAZON_METRICS_LOG
-				snprintf(buf, VIRTUAL_SENSOR_GOV_METRICS_STR_LEN,
-				"%s:vs_cooler_%s_unthrottling,cur_temp=%d;trip_temp=%d;target=%lu;CT;1:NR",
-					PREFIX, cdev->type, tz->temperature, temp, target);
-				log_to_metrics(ANDROID_LOG_INFO, "ThermalEvent", buf);
-#endif
-#ifdef CONFIG_AMAZON_MINERVA_METRICS_LOG
-				snprintf(key_buf, 128, "vs_cooler_%s_unthrottling", cdev->type);
-				snprintf(dimensions_buf, 128, "\"trip_temp\"#\"%d\"$\"target\"#\"%lu\"",
-						temp, target);
-				minerva_counter_to_vitals(ANDROID_LOG_INFO,
-						VITALS_THERMAL_GROUP_ID, VITALS_THERMAL_THROTTLE_SCHEMA_ID,
-						"thermal", "thermal", "thermalthrottle",
-						key_buf, tz->temperature, "temp",
-						NULL, VITALS_NORMAL, dimensions_buf, NULL);
-#endif
 			}
 
 			snprintf(data[0], sizeof(data[0]), "TRIP=%ld", target - 1);

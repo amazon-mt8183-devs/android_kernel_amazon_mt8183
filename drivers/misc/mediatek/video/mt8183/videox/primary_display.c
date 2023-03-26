@@ -107,18 +107,6 @@
 
 #define FRM_UPDATE_SEQ_CACHE_NUM (DISP_INTERNAL_BUFFER_COUNT+1)
 
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-#include <linux/metricslog.h>
-#endif
-
-#if defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG)
-#include <linux/amzn_metricslog.h>
-#endif
-
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG)
-static char metric_buf[512];
-#endif
-
 static struct disp_internal_buffer_info *decouple_buffer_info[DISP_INTERNAL_BUFFER_COUNT];
 static struct disp_internal_buffer_info *freeze_buffer_info;
 static struct RDMA_CONFIG_STRUCT decouple_rdma_config;
@@ -8729,18 +8717,6 @@ int primary_display_setbacklight_mode(unsigned int mode)
 		ret = -1;
 	} else {
 		DISPMSG("primary backlight_mode\n");
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG)
-		snprintf(metric_buf, sizeof(metric_buf),
-			"%s:lcd:cabc=%d;CT;1:NR", __func__, mode);
-		log_to_metrics(ANDROID_LOG_INFO, "lcd", metric_buf);
-#endif
-#if defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-		minerva_metrics_log(metric_buf, 512, "%s:%s:100:%s,%s,%s,%s,lcm_state=cabc;SY,"
-				"ESD_Recovery=%d;IN:us-east-1",
-				METRICS_LCD_GROUP_ID, METRICS_LCD_SCHEMA_ID,
-				PREDEFINED_ESSENTIAL_KEY, PREDEFINED_MODEL_KEY,
-				PREDEFINED_TZ_KEY, PREDEFINED_DEVICE_LANGUAGE_KEY, mode);
-#endif
 		ret = disp_lcm_set_backlight_mode(pgc->plcm, mode);
 	}
 	_primary_path_unlock(__func__);

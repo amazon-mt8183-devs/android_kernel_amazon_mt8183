@@ -60,7 +60,6 @@
 #include <mt-plat/mtk_charger.h>
 #include <mt-plat/mtk_battery.h>
 #include <mt-plat/mtk_boot.h>
-#include <mt-plat/battery_metrics.h>
 
 #include <mtk_gauge_class.h>
 #include "mtk_battery_internal.h"
@@ -560,7 +559,6 @@ void battery_update(struct battery_data *bat_data)
 	if (is_fg_disabled())
 		bat_data->BAT_CAPACITY = 50;
 
-	bat_metrics_chg_state(bat_data->BAT_STATUS);
 	power_supply_changed(bat_psy);
 }
 
@@ -4167,9 +4165,6 @@ static int __init battery_probe(struct platform_device *dev)
 
 	gm.is_probe_done = true;
 
-	/* Charger & Battery mertrics */
-	bat_metrics_init();
-
 	return 0;
 }
 
@@ -4178,9 +4173,6 @@ void battery_shutdown(struct platform_device *dev)
 	int fg_coulomb = 0;
 	int shut_car_diff = 0;
 	int verify_car;
-
-	/* Charger & Battery mertrics */
-	bat_metrics_uninit();
 
 	fg_coulomb = gauge_get_coulomb();
 	if (gm.d_saved_car != 0) {
@@ -4212,8 +4204,6 @@ static int battery_suspend(struct platform_device *dev, pm_message_t state)
 			pmic_enable_interrupt(FG_IAVG_L_NO, 0, "GM30");
 	}
 
-	bat_metrics_suspend();
-
 	return 0;
 }
 
@@ -4236,7 +4226,6 @@ static int battery_resume(struct platform_device *dev)
 	/* reset nafg monitor time to avoid suspend for too long case */
 	get_monotonic_boottime(&gm.last_nafg_update_time);
 
-	bat_metrics_resume();
 	fg_update_sw_iavg();
 	return 0;
 }

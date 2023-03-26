@@ -20,13 +20,6 @@
 #include <linux/of_gpio.h>
 #include <linux/gpio.h>
 #endif
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-#include <linux/metricslog.h>
-#endif
-
-#if defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG)
-#include <linux/amzn_metricslog.h>
-#endif
 
 /* for EINT register and enum */
 #include <upmu_common.h>
@@ -178,14 +171,6 @@ char *accdet_report_string[] = {
 	"Headset_five_pole",
 	"Line_out_device"
 };
-
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-static char *accdet_metrics_cable_string[3] = {
-	"NOTHING",
-	"HEADSET",
-	"HEADPHONES"
-};
-#endif
 
 /* ---------------------------------------------------------------------*/
 /* static bool IRQ_CLR_FLAG = 0; //use local var */
@@ -667,65 +652,28 @@ static void send_accdet_status_event(int cable, int status)
 
 static void send_key_event(int keycode, int flag)
 {
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-	char buf[512];
-	char *string = NULL;
-
-#endif
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG)
-	int ret = 0;
-#endif
 	switch (keycode) {
 	case DW_KEY:
 		input_report_key(kpd_accdet_dev, KEY_VOLUMEDOWN, flag);
 		input_sync(kpd_accdet_dev);
 		ACCDET_DEBUG("[accdet][send_key_event]KEY_VOLUMEDOWN %d\n", flag);
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-		string = "KEY_VOLUMEDOWN";
-#endif
 		break;
 	case UP_KEY:
 		input_report_key(kpd_accdet_dev, KEY_VOLUMEUP, flag);
 		input_sync(kpd_accdet_dev);
 		ACCDET_DEBUG("[accdet][send_key_event]KEY_VOLUMEUP %d\n", flag);
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-		string = "KEY_VOLUMEUP";
-#endif
 		break;
 	case MD_KEY:
 		input_report_key(kpd_accdet_dev, KEY_PLAYPAUSE, flag);
 		input_sync(kpd_accdet_dev);
 		ACCDET_DEBUG("[accdet][send_key_event]KEY_PLAYPAUSE %d\n", flag);
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-		string = "KEY_PLAYPAUSE";
-#endif
 		break;
 	case AS_KEY:
 		input_report_key(kpd_accdet_dev, KEY_VOICECOMMAND, flag);
 		input_sync(kpd_accdet_dev);
 		ACCDET_DEBUG("[accdet][send_key_event]KEY_VOICECOMMAND %d\n", flag);
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-		string = "KEY_VOICECOMMAND";
-#endif
 		break;
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-	default:
-		string = "NOKEY";
-#endif
 	}
-#if defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-	minerva_metrics_log(buf, 512, "%s:%s:100:%s,KEY=%s;SY,STATE=%d;IN:us-east-1",
-		METRICS_HEADSET_GROUP_ID, METRICS_HEADSET_KEY_SCHEMA_ID,
-		PREDEFINED_ESSENTIAL_KEY, string, flag);
-#endif
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG)
-	ret = snprintf(buf, sizeof(buf),
-		"%s:jack:key=%s;DV;1,state=%d;CT;1:NR",
-			__func__, string, flag);
-	if (ret < 0)
-		ACCDET_ERROR("[%s] snprintf occur error", __func__);
-	log_to_metrics(ANDROID_LOG_INFO, "AudioJackEvent", buf);
-#endif
 }
 
 static void multi_key_detection(int current_status)
@@ -942,12 +890,6 @@ static inline void check_cable_type(void)
  */
 static inline void headset_plug_out(void)
 {
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-	char buf[512];
-#endif
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG)
-	int ret = 0;
-#endif
 	send_accdet_status_event(s_cable_type, 0);
 	s_accdet_status = PLUG_OUT;
 	s_cable_type = NO_DEVICE;
@@ -957,18 +899,6 @@ static inline void headset_plug_out(void)
 		ACCDET_INFO("[accdet]plug_out send key = %d release\n", g_cur_key);
 		g_cur_key = 0;
 	}
-#if defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-	minerva_metrics_log(buf, 512, "%s:%s:100:%s,UNPLUGGED=true;BO,PLUGGED=false;BO,CABLE=NONE;SY:us-east-1",
-		METRICS_HEADSET_GROUP_ID, METRICS_HEADSET_JACK_SCHEMA_ID,
-		PREDEFINED_ESSENTIAL_KEY);
-#endif
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG)
-	ret = snprintf(buf, sizeof(buf),
-		"%s:jack:unplugged=1;CT;1:NR", __func__);
-	if (ret < 0)
-		ACCDET_INFO("[%s] snprintf occur error", __func__);
-	log_to_metrics(ANDROID_LOG_INFO, "AudioJackEvent", buf);
-#endif
 	ACCDET_DEBUG("[accdet]set state in cable_type = NO_DEVICE\n");
 }
 
@@ -1361,12 +1291,6 @@ static int accdet_eint_func(int eint_id)
 static void accdet_work_callback(struct work_struct *work)
 {
 	unsigned int reg_val = 0;
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG)
-	int ret = 0;
-#endif
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-	char buf[512];
-#endif
 	reg_val = 0;
 	wake_lock(&accdet_irq_lock);
 
@@ -1374,28 +1298,6 @@ static void accdet_work_callback(struct work_struct *work)
 
 	mutex_lock(&accdet_eint_irq_sync_mutex);
 	if (s_eint_accdet_sync_flag == 1) {
-#if defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-		if (s_pre_status == PLUG_OUT) {
-			minerva_metrics_log(buf, 512,
-				"%s:%s:100:%s,UNPLUGGED=false;BO,"
-				"PLUGGED=true;BO,CABLE=%s;SY:us-east-1",
-				METRICS_HEADSET_GROUP_ID, METRICS_HEADSET_JACK_SCHEMA_ID,
-				PREDEFINED_ESSENTIAL_KEY,
-				accdet_metrics_cable_string[s_cable_type]);
-		}
-#endif
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG)
-		if (s_pre_status == PLUG_OUT) {
-			ret = snprintf(buf, sizeof(buf),
-				"%s:jack:plugged=1;CT;1,state_%s=1;CT;1:NR",
-					__func__,
-					accdet_metrics_cable_string[
-					s_cable_type]);
-			if  (ret < 0)
-				ACCDET_INFO("[%s] snprintf occur error", __func__);
-			log_to_metrics(ANDROID_LOG_INFO, "AudioJackEvent", buf);
-		}
-#endif
 		send_accdet_status_event(s_cable_type, 1);
 	} else
 		ACCDET_ERROR("[accdet]Headset has plugged out don't set accdet state\n");

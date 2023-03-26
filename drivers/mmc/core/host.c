@@ -348,11 +348,7 @@ struct mmc_host *mmc_alloc_host(int extra, struct device *dev)
 		put_device(&host->class_dev);
 		return NULL;
 	}
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG)
-	INIT_DELAYED_WORK(&host->metrics_delay_work,
-				mmc_host_metrics_work);
-#endif /* CONFIG_AMAZON_METRICS_LOG || CONFIG_AMZN_METRICS_LOG */
-
+	
 	spin_lock_init(&host->lock);
 	init_waitqueue_head(&host->wq);
 	INIT_DELAYED_WORK(&host->detect, mmc_rescan);

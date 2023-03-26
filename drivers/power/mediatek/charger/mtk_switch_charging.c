@@ -63,7 +63,6 @@
 #include <linux/kernel.h>
 
 #include <mt-plat/mtk_boot.h>
-#include <mt-plat/battery_metrics.h>
 #include <musb_core.h>
 #include "mtk_charger_intf.h"
 #include "mtk_switch_charging.h"
@@ -225,7 +224,6 @@ static int adapter_power_detection(struct charger_manager *info)
 	}
 
 done:
-	bat_metrics_adapter_power(det->type, _uA_to_mA(aicl_ua));
 	pr_info("%s: detect %s adapter\n", __func__, category_text[det->type]);
 	return 0;
 
@@ -888,7 +886,6 @@ int charger_dev_event(struct notifier_block *nb, unsigned long event, void *v)
 	case CHARGER_DEV_NOTIFY_SAFETY_TIMEOUT:
 		info->safety_timeout = true;
 		chr_err("%s: safety timer timeout\n", __func__);
-		bat_metrics_chg_fault(METRICS_FAULT_SAFETY_TIMEOUT);
 
 		/* If sw safety timer timeout, do not wake up charger thread */
 		if (info->enable_sw_safety_timer)
@@ -897,7 +894,6 @@ int charger_dev_event(struct notifier_block *nb, unsigned long event, void *v)
 	case CHARGER_DEV_NOTIFY_VBUS_OVP:
 		info->vbusov_stat = data->vbusov_stat;
 		chr_err("%s: vbus ovp = %d\n", __func__, info->vbusov_stat);
-		bat_metrics_chg_fault(METRICS_FAULT_VBUS_OVP);
 		break;
 	default:
 		return NOTIFY_DONE;

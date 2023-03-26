@@ -436,22 +436,6 @@ struct msdc_host {
 	u32 pc_count;		/* total power cycle count */
 	u32 pc_suspend;		/* suspend/resume count */
 	u32 cmd19_fail;		/* cmd19 tune failed count */
-
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-	struct delayed_work metrics_work;
-	bool metrics_enable;
-	u32 crc_count_p;		/* reported crc count */
-	u32 crc_invalid_count_p;	/* reported crc invalid count eg CMD19 */
-	u32 req_count_p;		/* reported request count */
-	u32 datatimeout_count_p;	/* reported data timeout count */
-	u32 cmdtimeout_count_p;		/* reported cmd timeout count */
-	u32 reqtimeout_count_p;		/* reported req timeout count */
-	u32 pc_count_p;			/* reported power cycle count */
-	u32 pc_suspend_p;		/* reported suspend/resume count */
-	u32 cmd19_fail_p;		/* reported cmd19 tune failed count */
-	u32 inserted_p;			/* reported card detection count */
-	u32 inserted;			/* total card detection cound */
-#endif
 };
 
 enum {

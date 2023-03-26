@@ -73,7 +73,6 @@
 #include <musb_core.h>
 #include <pmic.h>
 #include <mtk_gauge_time_service.h>
-#include <mt-plat/battery_metrics.h>
 #include <mtk_battery_internal.h>
 
 #define TEMP_T0_DEFAULT_CHARGING_CURRENT 350000
@@ -1454,7 +1453,6 @@ static void check_top_off_mode(struct charger_manager *info,
 			info->top_off_mode_enable) {
 			info->custom_charging_cv = top_off_cv;
 			fg_update_difference_full_cv(info->top_off_difference_full_cv);
-			bat_metrics_top_off_mode(true, total_time_plug_in);
 		} else {
 			info->custom_charging_cv = -1;
 			fg_update_difference_full_cv(info->normal_difference_full_cv);
@@ -1465,7 +1463,6 @@ static void check_top_off_mode(struct charger_manager *info,
 		info->custom_plugin_time = 0;
 		info->custom_charging_cv = -1;
 		fg_update_difference_full_cv(info->normal_difference_full_cv);
-		bat_metrics_top_off_mode(false, 0);
 	}
 }
 

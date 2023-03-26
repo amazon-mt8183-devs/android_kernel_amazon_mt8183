@@ -95,7 +95,6 @@
 #ifdef CONFIG_AMAZON_LD_SWITCH
 #include <misc/amzn_ld_switch.h>
 #endif
-#include <mt-plat/battery_metrics.h>
 
 /* ============================================================ */
 /* global variable */
@@ -3121,10 +3120,6 @@ void fg_daemon_send_data(
 				prcv->idx);
 
 			bm_info("FG_LOG_DATA\n");
-
-			bat_metrics_aging(fg_log_data.gm30_aging_factor,
-					  fg_log_data.gm30_bat_cycle,
-					  fg_log_data.gm30_qmax_t_0ma_tb1);
 		}
 		break;
 

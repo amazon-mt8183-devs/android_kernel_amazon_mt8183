@@ -223,11 +223,6 @@ struct virtual_sensor_thermal_zone {
 #else
 	struct mtk_thermal_platform_data *pdata;
 #endif
-
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-	atomic_t query_count;
-	unsigned int mask;
-#endif
 };
 
 #ifdef CONFIG_AMZN_THERMAL_VIRTUAL_SENSOR

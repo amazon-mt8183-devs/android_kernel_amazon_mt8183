@@ -42,14 +42,6 @@
 #include <mt-plat/mtk_ccci_common.h>
 #include <mt-plat/mtk_rtc.h>
 
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-#include <linux/metricslog.h>
-#endif
-
-#if defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG)
-#include <linux/amzn_metricslog.h>
-#endif
-
 /* Global variable */
 int g_pmic_irq;
 
@@ -281,12 +273,6 @@ struct pmic_sp_interrupt sp_interrupts[] = {
 
 unsigned int sp_interrupt_size = ARRAY_SIZE(sp_interrupts);
 
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-static struct work_struct metrics_work;
-static bool pwrkey_press;
-static void pwrkey_log_to_metrics(struct work_struct *data);
-#endif
-
 #ifdef CONFIG_INPUT_AMZN_KEYCOMBO
 bool check_pwrkey_status(void)
 {
@@ -337,34 +323,6 @@ static unsigned int pmic_check_intNo(enum PMIC_IRQ_ENUM intNo,
 	return 0;
 }
 
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-#define PWRKEY_METRICS_STR_LEN 512
-
-static void pwrkey_log_to_metrics(struct work_struct *data)
-{
-	char *action;
-	char buf[PWRKEY_METRICS_STR_LEN];
-
-	action = (pwrkey_press) ? "press" : "release";
-
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG)
-	if (snprintf(buf, PWRKEY_METRICS_STR_LEN,
-		"%s:powi%c:report_action_is_%s=1;CT;1:NR", __func__,
-		action[0], action) < 0) {
-		pr_err("[%s] snprintf failed\n", __func__);
-		return;
-	}
-	log_to_metrics(ANDROID_LOG_INFO, "PowerKeyEvent", buf);
-#endif
-#if defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-	minerva_metrics_log(buf, PWRKEY_METRICS_STR_LEN,
-		"%s:%s:100:%s,report_action_is_action=%s;SY:us-east-1",
-		METRICS_PWRKEY_GROUP_ID, METRICS_PWRKEY_SCHEMA_ID,
-		PREDEFINED_ESSENTIAL_KEY, action);
-#endif
-}
-#endif
-
 /* PWRKEY Int Handler */
 void pwrkey_int_handler(void)
 {
@@ -380,11 +338,6 @@ void pwrkey_int_handler(void)
 #if !defined(CONFIG_FPGA_EARLY_PORTING) && defined(CONFIG_KPD_PWRKEY_USE_PMIC)
 	kpd_pwrkey_pmic_handler(0x1);
 #endif
-
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-	pwrkey_press = true;
-	schedule_work(&metrics_work);
-#endif
 }
 
 void pwrkey_int_handler_r(void)
@@ -399,11 +352,6 @@ void pwrkey_int_handler_r(void)
 
 #if !defined(CONFIG_FPGA_EARLY_PORTING) && defined(CONFIG_KPD_PWRKEY_USE_PMIC)
 	kpd_pwrkey_pmic_handler(0x0);
-#endif
-
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-	pwrkey_press = false;
-	schedule_work(&metrics_work);
 #endif
 }
 
@@ -905,10 +853,6 @@ void PMIC_EINT_SETTING(void)
 #if defined(CONFIG_MTK_KERNEL_POWER_OFF_CHARGING)
 	hrtimer_init(&kpoc_reboot_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
 	kpoc_reboot_timer.function = kpoc_reboot_timer_func;
-#endif
-
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-	INIT_WORK(&metrics_work, pwrkey_log_to_metrics);
 #endif
 }
 

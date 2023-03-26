@@ -23,13 +23,7 @@
 #include <linux/input/mt.h>
 #include <linux/debugfs.h>
 #include <linux/timekeeping.h>
-#ifdef CONFIG_AMAZON_METRICS_LOG
-#include <linux/metricslog.h>
-#endif
 
-#ifdef CONFIG_AMZN_METRICS_LOG
-#include <linux/amzn_metricslog.h>
-#endif
 #include "gt9xx.h"
 
 #define GOODIX_COORDS_ARR_SIZE	4
@@ -43,10 +37,6 @@ static const char *goodix_input_phys = "input/ts";
 struct i2c_client *i2c_connect_client;
 static struct proc_dir_entry *gtp_config_proc;
 static int gesture_wakeup_delayed; /*-1:no update, 0:disable, 1: enable */
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG)
-static ktime_t g_ts_irq_in, g_ts_report;
-static char buffer[128];
-#endif
 static int g_debugfs_enable_latency_check;
 
 enum doze {
@@ -606,36 +596,6 @@ static void gtp_mt_slot_report(struct goodix_ts_data *ts, u8 touch_num,
 	input_sync(ts->input_dev);
 }
 
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG)
-int charger_exist(void)
-{
-	int ret;
-	struct power_supply *psy;
-	union power_supply_propval online_usb, online_ac;
-
-	psy = power_supply_get_by_name("usb");
-	if (!psy)
-		return -ENODEV;
-	ret = power_supply_get_property(psy, POWER_SUPPLY_PROP_PRESENT,
-			&online_usb);
-	if (ret)
-		return -ENOENT;
-
-	psy = power_supply_get_by_name("ac");
-	if (!psy)
-		return -ENODEV;
-	ret = power_supply_get_property(psy, POWER_SUPPLY_PROP_PRESENT,
-			&online_ac);
-	if (ret)
-		return -ENOENT;
-
-	if (online_usb.intval || online_ac.intval)
-		return 1;
-	else
-		return 0;
-}
-#endif
-
 /*******************************************************
  * Function:
  *	Goodix touchscreen sensor report function
@@ -652,9 +612,6 @@ static void gtp_work_func(struct goodix_ts_data *ts)
 	s32 ret = -1;
 	static u8 pre_key;
 	struct goodix_point_t points[GTP_MAX_TOUCH_ID];
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG)
-	int charger_flag = 0;
-#endif
 	if (test_bit(PANEL_RESETTING, &ts->flags))
 		return;
 	if (!test_bit(WORK_THREAD_ENABLED, &ts->flags))
@@ -665,17 +622,6 @@ static void gtp_work_func(struct goodix_ts_data *ts)
 		ret =  gtp_gesture_handler(ts);
 		if (ret)
 			TP_LOGE("Failed handler gesture event %d\n", ret);
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG)
-		charger_flag = charger_exist();
-		if (charger_flag >= 0) {
-			snprintf(buffer, sizeof(buffer),
-				"%s:touchwakup:%s_charger_wakeup=1;CT;1:NR",
-				__func__, (charger_flag ? "with" : "without"));
-			log_to_metrics(ANDROID_LOG_INFO, "TouchWakeup", buffer);
-		} else
-			pr_err("%s charger_exist error: %d\n",
-					__func__, charger_flag);
-#endif
 		return;
 	}
 
@@ -726,20 +672,6 @@ static void gtp_work_func(struct goodix_ts_data *ts)
 		gtp_mt_slot_report(ts, point_state & 0x0f, points);
 	else
 		gtp_type_a_report(ts, point_state & 0x0f, points);
-
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG)
-	if (g_debugfs_enable_latency_check) {
-		g_ts_report = ktime_get();
-		snprintf(buffer, sizeof(buffer),
-				"Report event:latency=%lldus;@%lldus;num=%d;TYPE_A=%d",
-				(ktime_to_ns(g_ts_report) - ktime_to_ns(g_ts_irq_in))/1000LL,
-				ktime_to_ns(g_ts_report)/1000LL,
-				point_state & 0x0f,
-				ts->pdata->type_a_report);
-		log_to_metrics(ANDROID_LOG_INFO, "Touch", buffer);
-	}
-#endif
-
 }
 
 /*******************************************************
@@ -767,14 +699,6 @@ static enum hrtimer_restart gtp_timer_handler(struct hrtimer *timer)
 static irqreturn_t gtp_irq_handler(int irq, void *dev_id)
 {
 	struct goodix_ts_data *ts = dev_id;
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG)
-	if (g_debugfs_enable_latency_check) {
-		g_ts_irq_in = ktime_get();
-		snprintf(buffer, sizeof(buffer),
-				"Irq:@%lldus", ktime_to_ns(g_ts_irq_in)/1000LL);
-		log_to_metrics(ANDROID_LOG_INFO, "Touch", buffer);
-	}
-#endif
 	gtp_work_func(ts);
 	return IRQ_HANDLED;
 }

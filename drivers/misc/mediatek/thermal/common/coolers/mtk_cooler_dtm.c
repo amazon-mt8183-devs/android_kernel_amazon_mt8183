@@ -44,19 +44,6 @@
 #endif
 #endif
 
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-#include <linux/metricslog.h>
-#endif
-
-#if defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG)
-#include <linux/amzn_metricslog.h>
-#endif
-
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-#define TSCPU_METRICS_STR_LEN 320
-#define PREFIX "thermaltscpu:def"
-#endif
-
 /*=============================================================
  *Local variable definition
  *=============================================================
@@ -251,33 +238,6 @@ static int dtm_cpu_get_cur_state(struct thermal_cooling_device *cdev, unsigned l
 static int dtm_cpu_set_cur_state(struct thermal_cooling_device *cdev, unsigned long state)
 {
 	int i = 0;
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-	char buf[TSCPU_METRICS_STR_LEN];
-#endif
-
-#if defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-	for (i = 0; i < Num_of_OPP; i++) {
-		if ((!strcmp(cdev->type, &cooler_name[i * 20])) &&
-			cl_dev_state[i] != state) {
-			minerva_metrics_log(buf, TSCPU_METRICS_STR_LEN,
-				"%s:%s:100:%s,cooler_name=cpumonitor_%s_cooler;SY,"
-				"target_state=%ld;IN:us-east-1",
-				METRICS_THERMAL_GROUP_ID, METRICS_THERMAL_COOLER_SCHEMA_ID,
-				PREDEFINED_ESSENTIAL_KEY, cdev->type, state);
-		}
-	}
-#endif
-#if defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMAZON_METRICS_LOG)
-	for (i = 0; i < Num_of_OPP; i++) {
-		if ((!strcmp(cdev->type, &cooler_name[i * 20])) &&
-			cl_dev_state[i] != state) {
-			snprintf(buf, TSCPU_METRICS_STR_LEN,
-				"%s:cpumonitor_%s_cooler_state=%ld;CT;1:NR",
-				PREFIX, cdev->type, state);
-			log_to_metrics(ANDROID_LOG_INFO, "ThermalEvent", buf);
-		}
-	}
-#endif
 
 	for (i = 0; i < Num_of_OPP; i++) {
 		if (!strcmp(cdev->type, &cooler_name[i * 20])) {

@@ -1,14 +1,6 @@
 #ifndef _AMZN_LD_H
 #define _AMZN_LD_H
 
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-#include <linux/metricslog.h>
-#endif
-
-#if defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG)
-#include <linux/amzn_metricslog.h>
-#endif
-
 enum ld_state {
 	DRY = 0,
 	WET = 1,
@@ -77,20 +69,6 @@ struct ld_data {
 	atomic_t is_suspend;
 	int state;
 };
-
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-#define BATTERY_METRICS_BUFF_SIZE 512
-char g_m_buf[BATTERY_METRICS_BUFF_SIZE];
-
-#define ld_metrics_log(domain, fmt, ...)			\
-do {								\
-	memset(g_m_buf, 0, BATTERY_METRICS_BUFF_SIZE);		\
-	snprintf(g_m_buf, sizeof(g_m_buf), fmt, ##__VA_ARGS__);\
-	log_to_metrics(ANDROID_LOG_INFO, domain, g_m_buf);	\
-} while (0)
-#else
-static inline void ld_metrics_log(void) {}
-#endif
 
 #define TASK_DELAY_MSEC 15000
 #define RECHECK_DELAY_MSEC 5000

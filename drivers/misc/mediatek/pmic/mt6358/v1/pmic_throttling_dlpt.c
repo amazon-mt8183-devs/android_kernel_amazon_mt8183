@@ -40,7 +40,6 @@
 #include <mach/mtk_battery_property.h>
 #include <linux/reboot.h>
 #include <mtk_battery_internal.h>
-#include <mt-plat/battery_metrics.h>
 #else
 #include <mt-plat/battery_meter.h>
 #include <mt-plat/battery_common.h>
@@ -1061,7 +1060,6 @@ int dlpt_notify_handler(void *unused)
 					pr_info("[DLPT_POWER_OFF_EN] notify SOC=0 to power off , cnt=%d\n", cnt);
 
 					if (cnt >= 4) {
-						bat_metrics_critical_shutdown();
 						kernel_restart("DLPT reboot system");
 					}
 #endif

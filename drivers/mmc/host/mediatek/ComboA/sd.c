@@ -74,14 +74,6 @@
 
 #include "dbg.h"
 
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-#include <linux/metricslog.h>
-#endif
-
-#if defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG)
-#include <linux/amzn_metricslog.h>
-#endif
-
 #define CAPACITY_2G             (2 * 1024 * 1024 * 1024ULL)
 
 /* FIX ME: Check if its reference in mtk_sd_misc.h can be removed */
@@ -127,10 +119,6 @@ static struct workqueue_struct *wq_init;
 #define msdc_use_async_dma(x)   (msdc_use_async(x) && (!(x & MSDC_COOKIE_PIO)))
 #define msdc_use_async_pio(x)   (msdc_use_async(x) && ((x & MSDC_COOKIE_PIO)))
 
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-#define METRICS_DELAY       HZ
-#endif
-
 u8 g_emmc_id;
 unsigned int cd_gpio;
 
@@ -174,32 +162,6 @@ int msdc_rsp[] = {
 #else
 #define msdc_dma_on()           MSDC_CLR_BIT32(MSDC_CFG, MSDC_CFG_PIO)
 #define msdc_dma_off()          MSDC_SET_BIT32(MSDC_CFG, MSDC_CFG_PIO)
-#endif
-
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG)
-#define MSDC_LOG_COUNTER_TO_VITALS(name, value) \
-	do { \
-		if (value != value##_p) { \
-			log_counter_to_vitals(ANDROID_LOG_INFO, "Kernel", "Kernel", \
-				((host->mmc) && (host->mmc->caps & MMC_CAP_SD_HIGHSPEED)) ? "SD" : "EMMC", \
-				#name, value - value##_p, "count", NULL, VITALS_NORMAL); \
-			value##_p = value; \
-		} \
-	} while (0)
-#endif
-
-#if defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-#define MSDC_MINERVA_COUNTER_TO_VITALS(name, value) \
-	do { \
-		if (value != value##_p) { \
-			minerva_counter_to_vitals(ANDROID_LOG_INFO, \
-				VITALS_EMMC_GROUP_ID, VITALS_EMMC_SCHEMA_ID, \
-				"Kernel", "msdc_state", \
-				((host->mmc) && (host->mmc->caps & MMC_CAP_SD_HIGHSPEED)) ? "SD" : "EMMC", \
-				#name, value - value##_p, "count", NULL, VITALS_NORMAL, NULL, NULL); \
-				value##_p = value; \
-		} \
-	} while (0)
 #endif
 
 #define FILTER_INVALIDCMD(opcode) \
@@ -275,39 +237,6 @@ static void msdc_remove_device_attrs(struct msdc_host *host, struct device_attri
 		device_remove_file(&host->pdev->dev, attrs[i]);
 }
 
-#if defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-static void msdc_metrics_work(struct work_struct *work)
-{
-	struct msdc_host *host = container_of(work, struct msdc_host, metrics_work.work);
-
-	MSDC_MINERVA_COUNTER_TO_VITALS(crc, host->crc_count);
-	MSDC_MINERVA_COUNTER_TO_VITALS(crc_invalid, host->crc_invalid_count);
-	MSDC_MINERVA_COUNTER_TO_VITALS(req, host->req_count);
-	MSDC_MINERVA_COUNTER_TO_VITALS(datato, host->datatimeout_count);
-	MSDC_MINERVA_COUNTER_TO_VITALS(cmdto, host->cmdtimeout_count);
-	MSDC_MINERVA_COUNTER_TO_VITALS(reqto, host->reqtimeout_count);
-	MSDC_MINERVA_COUNTER_TO_VITALS(pc_count, host->pc_count);
-	MSDC_MINERVA_COUNTER_TO_VITALS(pc_suspend, host->pc_suspend);
-	MSDC_MINERVA_COUNTER_TO_VITALS(cmd19_fail, host->cmd19_fail);
-	MSDC_MINERVA_COUNTER_TO_VITALS(inserted, host->inserted);
-}
-#elif defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG)
-static void msdc_metrics_work(struct work_struct *work)
-{
-	struct msdc_host *host = container_of(work, struct msdc_host, metrics_work.work);
-
-	MSDC_LOG_COUNTER_TO_VITALS(crc, host->crc_count);
-	MSDC_LOG_COUNTER_TO_VITALS(crc_invalid, host->crc_invalid_count);
-	MSDC_LOG_COUNTER_TO_VITALS(req, host->req_count);
-	MSDC_LOG_COUNTER_TO_VITALS(datato, host->datatimeout_count);
-	MSDC_LOG_COUNTER_TO_VITALS(cmdto, host->cmdtimeout_count);
-	MSDC_LOG_COUNTER_TO_VITALS(reqto, host->reqtimeout_count);
-	MSDC_LOG_COUNTER_TO_VITALS(pc_count, host->pc_count);
-	MSDC_LOG_COUNTER_TO_VITALS(pc_suspend, host->pc_suspend);
-	MSDC_LOG_COUNTER_TO_VITALS(cmd19_fail, host->cmd19_fail);
-	MSDC_LOG_COUNTER_TO_VITALS(inserted, host->inserted);
-}
-#endif
 /***************************************************************
 * BEGIN register dump functions
 ***************************************************************/
@@ -1286,10 +1215,6 @@ static void msdc_set_power_mode(struct msdc_host *host, u8 mode)
 		mdelay(10);
 		msdc_pin_reset(host, MSDC_PIN_PULL_DOWN, 0);
 		host->pc_count++;
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-		if (host->metrics_enable)
-			mod_delayed_work(system_wq, &host->metrics_work, METRICS_DELAY);
-#endif
 		dev_info(&host->pdev->dev, "crc/total %d/%d invalcrc %d datato %d cmdto %d reqto %d total_pc %d pc_sus %d\n",
 			host->crc_count, host->req_count, host->crc_invalid_count, host->datatimeout_count,
 			host->cmdtimeout_count, host->reqtimeout_count, host->pc_count, host->pc_suspend);
@@ -1894,10 +1819,6 @@ err:
 	ERR_MSG("XXX %s timeout: before CMD<%d>", str, opcode);
 	cmd->error = (unsigned int)-ETIMEDOUT;
 	host->reqtimeout_count++;
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-	if (host->metrics_enable)
-		mod_delayed_work(system_wq, &host->metrics_work, METRICS_DELAY);
-#endif
 	msdc_dump_info(host->id);
 	msdc_reset_hw(host->id);
 
@@ -1941,10 +1862,6 @@ static u32 msdc_command_resp_polling(struct msdc_host *host,
 				cmd->arg);
 			cmd->error = (unsigned int)-ETIMEDOUT;
 			host->cmdtimeout_count++;
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-			if (host->metrics_enable)
-				mod_delayed_work(system_wq, &host->metrics_work, METRICS_DELAY);
-#endif
 			msdc_dump_info(host->id);
 			msdc_reset_hw(host->id);
 			goto out;
@@ -1976,10 +1893,6 @@ static u32 msdc_command_resp_polling(struct msdc_host *host,
 			cmd->error = (unsigned int)-ETIMEDOUT;
 			host->sw_timeout++;
 			host->cmdtimeout_count++;
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-			if (host->metrics_enable)
-				mod_delayed_work(system_wq, &host->metrics_work, METRICS_DELAY);
-#endif
 			msdc_dump_info(host->id);
 			msdc_reset_hw(host->id);
 			goto out;
@@ -2042,10 +1955,6 @@ skip_cmd_resp_polling:
 			host->crc_invalid_count++;
 		else
 			host->crc_count++;
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-		if (host->metrics_enable)
-			mod_delayed_work(system_wq, &host->metrics_work, METRICS_DELAY);
-#endif
 		if ((cmd->opcode != 19) && (cmd->opcode != 21)) {
 			pr_notice("[%s]: msdc%d CMD<%d> MSDC_INT_RSPCRCERR Arg<0x%.8x>\n",
 				__func__, host->id, cmd->opcode, cmd->arg);
@@ -2062,10 +1971,6 @@ skip_cmd_resp_polling:
 	} else if (intsts & MSDC_INT_CMDTMO) {
 		cmd->error = (unsigned int)-ETIMEDOUT;
 		host->cmdtimeout_count++;
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-		if (host->metrics_enable)
-			mod_delayed_work(system_wq, &host->metrics_work, METRICS_DELAY);
-#endif
 		if ((cmd->opcode != 19) && (cmd->opcode != 21))
 			pr_notice("[%s]: msdc%d CMD<%d> MSDC_INT_CMDTMO Arg<0x%.8x>\n",
 				__func__, host->id, cmd->opcode, cmd->arg);
@@ -2134,10 +2039,6 @@ skip_cmd_resp_polling:
 				host->crc_invalid_count++;
 			else
 				host->crc_count++;
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-			if (host->metrics_enable)
-				mod_delayed_work(system_wq, &host->metrics_work, METRICS_DELAY);
-#endif
 			pr_notice("[%s]: msdc%d, autocmd23 crc error\n",
 				__func__, host->id);
 			sbc->error = (unsigned int)-EILSEQ;
@@ -2147,10 +2048,6 @@ skip_cmd_resp_polling:
 			msdc_reset_hw(host->id);
 		} else if (intsts & MSDC_INT_ACMDTMO) {
 			host->cmdtimeout_count++;
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-			if (host->metrics_enable)
-				mod_delayed_work(system_wq, &host->metrics_work, METRICS_DELAY);
-#endif
 			pr_notice("[%s]: msdc%d, autocmd23 tmo error\n",
 				__func__, host->id);
 			sbc->error = (unsigned int)-ETIMEDOUT;
@@ -2248,10 +2145,6 @@ static unsigned int msdc_cmdq_command_start(struct msdc_host *host,
 			cmd->error = (unsigned int)-ETIMEDOUT;
 			host->sw_timeout++;
 			host->reqtimeout_count++;
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-			if (host->metrics_enable)
-				mod_delayed_work(system_wq, &host->metrics_work, METRICS_DELAY);
-#endif
 			msdc_dump_info(host->id);
 			return cmd->error;
 		}
@@ -2300,10 +2193,6 @@ cmdq_resp_intr:
 	if (host->use_cmd_intr) {
 		if (msdc_wait_cmd_intr(host, true, host->busy_timeout_ms)) {
 			host->cmdtimeout_count++;
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-			if (host->metrics_enable)
-				mod_delayed_work(system_wq, &host->metrics_work, METRICS_DELAY);
-#endif
 			pr_notice("[%s]: msdc%d CMD<%d> %dms timeout ARG<0x%.8x>\n",
 				__func__, host->id, cmd->opcode,
 				host->busy_timeout_ms,
@@ -2350,10 +2239,6 @@ cmdq_resp_intr:
 			cmd->error = (unsigned int)-ETIMEDOUT;
 			host->sw_timeout++;
 			host->cmdtimeout_count++;
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-			if (host->metrics_enable)
-				mod_delayed_work(system_wq, &host->metrics_work, METRICS_DELAY);
-#endif
 			msdc_dump_info(host->id);
 			goto out;
 		}
@@ -2389,20 +2274,12 @@ skip_cmdq_resp_polling:
 				host->crc_invalid_count++;
 			else
 				host->crc_count++;
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-			if (host->metrics_enable)
-				mod_delayed_work(system_wq, &host->metrics_work, METRICS_DELAY);
-#endif
 			pr_notice("[%s]: msdc%d XXX CMD<%d> MSDC_INT_RSPCRCERR Arg<0x%.8x>",
 				__func__, host->id, cmd->opcode, cmd->arg);
 			/* msdc_dump_info(host->id); */
 		} else if (intsts & MSDC_INT_CMDTMO) {
 			cmd->error = (unsigned int)-ETIMEDOUT;
 			host->cmdtimeout_count++;
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-			if (host->metrics_enable)
-				mod_delayed_work(system_wq, &host->metrics_work, METRICS_DELAY);
-#endif
 			pr_notice("[%s]: msdc%d XXX CMD<%d> MSDC_INT_CMDTMO Arg<0x%.8x>",
 				__func__, host->id, cmd->opcode, cmd->arg);
 			mmc_cmd_dump(NULL, NULL, NULL, host->mmc, 50);
@@ -3228,10 +3105,6 @@ int msdc_rw_cmd_using_sync_dma(struct mmc_host *mmc, struct mmc_command *cmd,
 
 		host->sw_timeout++;
 		host->datatimeout_count++;
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-		if (host->metrics_enable)
-			mod_delayed_work(system_wq, &host->metrics_work, METRICS_DELAY);
-#endif
 		msdc_dump_info(host->id);
 		data->error = (unsigned int)-ETIMEDOUT;
 		msdc_reset(host->id);
@@ -4511,10 +4384,6 @@ int msdc_execute_tuning(struct mmc_host *mmc, u32 opcode)
 		msdc_dump_info(host->id);
 		if (host->hw->host_function == MSDC_SD) {
 			host->cmd19_fail++;
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-			if (host->metrics_enable)
-				mod_delayed_work(system_wq, &host->metrics_work, METRICS_DELAY);
-#endif
 		}
 	}
 
@@ -5009,17 +4878,6 @@ static void msdc_check_data_timeout(struct work_struct *work)
 	}
 }
 
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-static void msdc_cd_irq(struct mmc_host *mmc)
-{
-	struct msdc_host *host = mmc_priv(mmc);
-
-	host->inserted++;
-	if (host->metrics_enable)
-		mod_delayed_work(system_wq, &host->metrics_work, METRICS_DELAY);
-}
-#endif
-
 static struct mmc_host_ops mt_msdc_ops = {
 	.post_req                      = msdc_post_req,
 	.pre_req                       = msdc_pre_req,
@@ -5034,9 +4892,6 @@ static struct mmc_host_ops mt_msdc_ops = {
 	.hw_reset                      = msdc_card_reset,
 	.card_busy                     = msdc_card_busy,
 	.prepare_hs400_tuning          = msdc_prepare_hs400_tuning,
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-	.cd_irq = msdc_cd_irq,
-#endif
 };
 
 static void msdc_irq_cmd_complete(struct msdc_host *host)
@@ -5235,10 +5090,6 @@ static irqreturn_t msdc_irq(int irq, void *dev_id)
 			data->error = (unsigned int)-ETIMEDOUT;
 			host->data_timeout_cont++;
 			host->datatimeout_count++;
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-			if (host->metrics_enable)
-				mod_delayed_work(system_wq, &host->metrics_work, METRICS_DELAY);
-#endif
 			ERR_MSG("XXX CMD<%d> Arg<0x%.8x> MSDC_INT_DATTMO (cont %d)",
 				host->mrq->cmd->opcode, host->mrq->cmd->arg, host->data_timeout_cont);
 		} else if (intsts & MSDC_INT_DATCRCERR) {
@@ -5248,10 +5099,6 @@ static irqreturn_t msdc_irq(int irq, void *dev_id)
 				host->crc_invalid_count++;
 			else
 				host->crc_count++;
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-			if (host->metrics_enable)
-				mod_delayed_work(system_wq, &host->metrics_work, METRICS_DELAY);
-#endif
 			ERR_MSG("XXX CMD<%d> Arg<0x%.8x> MSDC_INT_DATCRCERR, SDC_DCRC_STS<0x%x>",
 				host->mrq->cmd->opcode, host->mrq->cmd->arg,
 				MSDC_READ32(SDC_DCRC_STS));
@@ -5287,20 +5134,12 @@ static irqreturn_t msdc_irq(int irq, void *dev_id)
 				host->crc_invalid_count++;
 			else
 				host->crc_count++;
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-			if (host->metrics_enable)
-				mod_delayed_work(system_wq, &host->metrics_work, METRICS_DELAY);
-#endif
 			ERR_MSG("XXX CMD<%d> Arg<0x%.8x> MSDC_INT_ACMDCRCERR",
 				stop->opcode, stop->arg);
 		} else if (intsts & MSDC_INT_ACMDTMO) {
 			stop->error = (unsigned int)-ETIMEDOUT;
 			host->error |= REQ_STOP_TMO;
 			host->cmdtimeout_count++;
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-			if (host->metrics_enable)
-				mod_delayed_work(system_wq, &host->metrics_work, METRICS_DELAY);
-#endif
 			ERR_MSG("XXX CMD<%d> Arg<0x%.8x> MSDC_INT_ACMDTMO",
 				stop->opcode, stop->arg);
 		}
@@ -5660,11 +5499,6 @@ static int msdc_drv_probe(struct platform_device *pdev)
 
 	if (host->hw->host_function == MSDC_EMMC)
 		mmc->pm_flags |= MMC_PM_KEEP_POWER;
-
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-	host->metrics_enable = true;
-	INIT_DELAYED_WORK(&host->metrics_work, msdc_metrics_work);
-#endif
 
 	platform_set_drvdata(pdev, mmc);
 

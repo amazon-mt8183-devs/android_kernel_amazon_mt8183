@@ -58,19 +58,6 @@
 #include <mt-plat/mtk_devinfo.h>
 #endif
 
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-#include <linux/metricslog.h>
-#endif
-
-#if defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG)
-#include <linux/amzn_metricslog.h>
-#endif
-
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-#define TSCPU_METRICS_STR_LEN 320
-#define PREFIX "thermaltscpu:def"
-#endif
-
 /*****************************************************************************
  *  Local switches
  *****************************************************************************/
@@ -1719,33 +1706,6 @@ static int adp_cpu_get_cur_state(struct thermal_cooling_device *cdev, unsigned l
 static int adp_cpu_set_cur_state(struct thermal_cooling_device *cdev, unsigned long state)
 {
 	int ttj = 117000;
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-	char buf[TSCPU_METRICS_STR_LEN];
-
-	if ((cdev->type[13] - '0') >= MAX_CPT_ADAPTIVE_COOLERS
-		|| (cdev->type[13] - '0') < 0) {
-		pr_err("%s: adaptive cooler index ERROR \n", __func__);
-		return -EINVAL;
-	}
-#endif
-
-#if defined(CONFIG_AMZN_MINERVA_METRICS_LOG) || defined(CONFIG_AMAZON_MINERVA_METRICS_LOG)
-	if (cl_dev_adp_cpu_state[(cdev->type[13] - '0')] != state) {
-		minerva_metrics_log(buf, TSCPU_METRICS_STR_LEN,
-			"%s:%s:100:%s,cooler_name=cpumonitor_%s_cooler;SY,"
-			"target_state=%ld;IN:us-east-1",
-			METRICS_THERMAL_GROUP_ID, METRICS_THERMAL_COOLER_SCHEMA_ID,
-			PREDEFINED_ESSENTIAL_KEY, cdev->type, state);
-	}
-#endif
-#if defined(CONFIG_AMZN_METRICS_LOG) || defined(CONFIG_AMAZON_METRICS_LOG)
-	if (cl_dev_adp_cpu_state[(cdev->type[13] - '0')] != state) {
-		snprintf(buf, TSCPU_METRICS_STR_LEN,
-			"%s:cpumonitor_%s_cooler_state=%ld;CT;1:NR",
-			PREFIX, cdev->type, state);
-		log_to_metrics(ANDROID_LOG_INFO, "ThermalEvent", buf);
-	}
-#endif
 
 	cl_dev_adp_cpu_state[(cdev->type[13] - '0')] = state;
 

@@ -39,17 +39,6 @@
 #include <linux/of_device.h>
 #include <linux/of_gpio.h>
 #include <linux/of_irq.h>
-#ifdef CONFIG_AMAZON_METRICS_LOG
-#include <linux/metricslog.h>
-#endif
-
-#ifdef CONFIG_AMZN_METRICS_LOG
-#include <linux/amzn_metricslog.h>
-#endif
-
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG)
-#include <linux/power_supply.h>
-#endif
 
 #ifdef GTP_ESD_PROTECT
 #define TPD_ESD_CHECK_CIRCLE	200
@@ -59,9 +48,6 @@ static void gtp_esd_check_func(struct work_struct *);
 static int count_irq;
 static unsigned long esd_check_circle = TPD_ESD_CHECK_CIRCLE;
 static u8 run_check_91_register;
-#endif
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG)
-static char buffer[128];
 #endif
 
 #ifdef FTS_CTL_IIC
@@ -338,36 +324,6 @@ static struct i2c_driver tpd_i2c_driver = {
 	.address_list = (const unsigned short *)forces,
 };
 
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG)
-static int fts_charger_exist(void)
-{
-	int ret;
-	struct power_supply *psy;
-	union power_supply_propval online_usb, online_ac;
-
-	psy = power_supply_get_by_name("usb");
-	if (!psy)
-		return -ENODEV;
-	ret = power_supply_get_property(psy, POWER_SUPPLY_PROP_PRESENT,
-			&online_usb);
-	if (ret)
-		return -ENOENT;
-
-	psy = power_supply_get_by_name("ac");
-	if (!psy)
-		return -ENODEV;
-	ret = power_supply_get_property(psy, POWER_SUPPLY_PROP_PRESENT,
-			&online_ac);
-	if (ret)
-		return -ENOENT;
-
-	if (online_usb.intval || online_ac.intval)
-		return 1;
-	else
-		return 0;
-}
-#endif
-
 /***********************************************************************
 * Name: fts_report_value
 * Brief: report the point information
@@ -384,9 +340,6 @@ static int fts_report_value(struct ts_event *data)
 	struct fts_touch_info *touch;
 	int i, x, y;
 	u8 gesture_buf[1] = { 0 };
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG)
-	int charger_flag = 0;
-#endif
 
 	mutex_lock(&i2c_access);
 	ret = ftxxxx_i2c_Read(i2c_client, &addr, 1, (char *)&buf,
@@ -414,18 +367,6 @@ static int fts_report_value(struct ts_event *data)
 			input_sync(tpd->dev);
 			focal_suspend_flag = false;
 
-#if defined(CONFIG_AMAZON_METRICS_LOG) || defined(CONFIG_AMZN_METRICS_LOG)
-			charger_flag = fts_charger_exist();
-			if (charger_flag >= 0) {
-				snprintf(buffer, sizeof(buffer),
-				"%s:touchwakup:%s_charger_wakeup=1;CT;1:NR",
-				__func__, (charger_flag ? "with" : "without"));
-				log_to_metrics(ANDROID_LOG_INFO,
-					"TouchWakeup", buffer);
-			} else
-				pr_err("%s charger_exist error: %d\n",
-						__func__, charger_flag);
-#endif
 			return 0;
 		}
 	}
