@@ -34,6 +34,8 @@
 
 #include "power.h"
 
+#define MTK_SOLUTION 1
+
 const char *pm_labels[] = { "mem", "standby", "freeze", NULL };
 const char *pm_states[PM_SUSPEND_MAX];
 
@@ -384,6 +386,7 @@ static int suspend_enter(suspend_state_t state, bool *wakeup)
 			trace_suspend_resume(TPS("machine_suspend"),
 				state, false);
 			events_check_enabled = false;
+			pr_notice("[METRICS_RESUME] Device suspend exit\n");
 		} else if (*wakeup) {
 			pm_get_active_wakeup_sources(suspend_abort,
 				MAX_SUSPEND_ABORT_LEN);
@@ -476,6 +479,51 @@ static void suspend_finish(void)
 	pm_restore_console();
 }
 
+#if MTK_SOLUTION
+
+#define SYS_SYNC_TIMEOUT 2000
+static int sys_sync_ongoing;
+static DECLARE_WAIT_QUEUE_HEAD(sys_sync_wq);
+
+static void suspend_sys_sync(struct work_struct *work);
+static struct workqueue_struct *suspend_sys_sync_work_queue;
+DECLARE_WORK(suspend_sys_sync_work, suspend_sys_sync);
+
+static void suspend_sys_sync(struct work_struct *work)
+{
+	pr_debug("++\n");
+	sys_sync();
+	sys_sync_ongoing = 0;
+	pr_debug("--\n");
+	wake_up(&sys_sync_wq);
+}
+
+int suspend_syssync_enqueue(void)
+{
+	if (suspend_sys_sync_work_queue == NULL) {
+		suspend_sys_sync_work_queue = create_singlethread_workqueue("fs_suspend_syssync");
+		if (suspend_sys_sync_work_queue == NULL)
+			pr_err("fs_suspend_syssync workqueue create failed\n");
+	}
+
+	wait_event_timeout(sys_sync_wq, !sys_sync_ongoing,
+			   msecs_to_jiffies(SYS_SYNC_TIMEOUT));
+
+	if (!sys_sync_ongoing) {
+		sys_sync_ongoing = 1;
+		queue_work(suspend_sys_sync_work_queue, &suspend_sys_sync_work);
+		wait_event_timeout(sys_sync_wq, !sys_sync_ongoing,
+				   msecs_to_jiffies(SYS_SYNC_TIMEOUT));
+		if (!sys_sync_ongoing)
+			return 0;
+		else
+			return -EBUSY;
+	} else
+		return -EBUSY;
+}
+
+#endif
+
 /**
  * enter_state - Do common work needed to enter system sleep state.
  * @state: System sleep state to enter.
@@ -509,7 +557,15 @@ static int enter_state(suspend_state_t state)
 #ifndef CONFIG_SUSPEND_SKIP_SYNC
 	trace_suspend_resume(TPS("sync_filesystems"), 0, true);
 	printk(KERN_INFO "PM: Syncing filesystems ... ");
+#if MTK_SOLUTION
+	error = suspend_syssync_enqueue();
+	if (error) {
+		pr_err("sys_sync timeout.\n");
+		goto Unlock;
+	}
+#else
 	sys_sync();
+#endif
 	printk("done.\n");
 	trace_suspend_resume(TPS("sync_filesystems"), 0, false);
 #endif
