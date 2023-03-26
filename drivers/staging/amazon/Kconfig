@@ -8,27 +8,11 @@ config AMAZON
 
 if AMAZON
 
-config AMAZON_POWEROFF_LOG
-	bool "Long press key power off log"
-	default N
-	help
-	enable Long press key power off log
-
 config AMAZON_BOOTUP_KEEP_WATCHDOG
 	bool "Keep watchdog enabled during system bootup"
 	default N
 	---help---
 	  Keep watchdog enabled during system bootup
-
-config INPUT_AMZN_KEYCOMBO
-	tristate "Amazon key combo"
-	depends on INPUT
-	select INPUT_KEYCOMBO
-	---help---
-	  Say Y here if you want to panic kernel / power off when some keys are pressed;
-
-	  To compile this driver as a module, choose M here: the
-	  module will be called amzn_keycombo.
 
 config AMAZON_LD
 	tristate "Amazon LD Module"
