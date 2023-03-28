@@ -57,11 +57,6 @@ extern u64 fpu__get_supported_xfeatures_mask(void);
 /*
  * FPU related CPU feature flag helper routines:
  */
-static __always_inline __pure bool use_eager_fpu(void)
-{
-	return true;
-}
-
 static __always_inline __pure bool use_xsaveopt(void)
 {
 	return static_cpu_has(X86_FEATURE_XSAVEOPT);
@@ -99,6 +94,9 @@ extern void fpstate_sanitize_xstate(struct fpu *fpu);
 #define user_insn(insn, output, input...)				\
 ({									\
 	int err;							\
+									\
+	might_fault();							\
+									\
 	asm volatile(ASM_STAC "\n"					\
 		     "1:" #insn "\n\t"					\
 		     "2: " ASM_CLAC "\n"				\
@@ -219,6 +217,14 @@ static inline void copy_fxregs_to_kernel(struct fpu *fpu)
 	}
 }
 
+static inline void fxsave(struct fxregs_state *fx)
+{
+	if (IS_ENABLED(CONFIG_X86_32))
+		asm volatile( "fxsave %[fx]" : [fx] "=m" (*fx));
+	else
+		asm volatile("fxsaveq %[fx]" : [fx] "=m" (*fx));
+}
+
 /* These macros all use (%edi)/(%rdi) as the single memory argument. */
 #define XSAVE		".byte " REX_PREFIX "0x0f,0xae,0x27"
 #define XSAVEOPT	".byte " REX_PREFIX "0x0f,0xae,0x37"
@@ -287,28 +293,6 @@ static inline void copy_fxregs_to_kernel(struct fpu *fpu)
 		     : [err] "=r" (err)					\
 		     : "D" (st), "m" (*st), "a" (lmask), "d" (hmask)	\
 		     : "memory")
-
-/*
- * This function is called only during boot time when x86 caps are not set
- * up and alternative can not be used yet.
- */
-static inline void copy_xregs_to_kernel_booting(struct xregs_state *xstate)
-{
-	u64 mask = -1;
-	u32 lmask = mask;
-	u32 hmask = mask >> 32;
-	int err;
-
-	WARN_ON(system_state != SYSTEM_BOOTING);
-
-	if (static_cpu_has(X86_FEATURE_XSAVES))
-		XSTATE_OP(XSAVES, xstate, lmask, hmask, err);
-	else
-		XSTATE_OP(XSAVE, xstate, lmask, hmask, err);
-
-	/* We should never fault when copying to a kernel buffer: */
-	WARN_ON_FPU(err);
-}
 
 /*
  * This function is called only during boot time when x86 caps are not set
@@ -498,24 +482,6 @@ static inline int fpu_want_lazy_restore(struct fpu *fpu, unsigned int cpu)
 }
 
 
-/*
- * Wrap lazy FPU TS handling in a 'hw fpregs activation/deactivation'
- * idiom, which is then paired with the sw-flag (fpregs_active) later on:
- */
-
-static inline void __fpregs_activate_hw(void)
-{
-	if (!use_eager_fpu())
-		clts();
-}
-
-static inline void __fpregs_deactivate_hw(void)
-{
-	if (!use_eager_fpu())
-		stts();
-}
-
-/* Must be paired with an 'stts' (fpregs_deactivate_hw()) after! */
 static inline void __fpregs_deactivate(struct fpu *fpu)
 {
 	WARN_ON_FPU(!fpu->fpregs_active);
@@ -524,7 +490,6 @@ static inline void __fpregs_deactivate(struct fpu *fpu)
 	this_cpu_write(fpu_fpregs_owner_ctx, NULL);
 }
 
-/* Must be paired with a 'clts' (fpregs_activate_hw()) before! */
 static inline void __fpregs_activate(struct fpu *fpu)
 {
 	WARN_ON_FPU(fpu->fpregs_active);
@@ -549,22 +514,17 @@ static inline int fpregs_active(void)
 }
 
 /*
- * Encapsulate the CR0.TS handling together with the
- * software flag.
- *
  * These generally need preemption protection to work,
  * do try to avoid using these on their own.
  */
 static inline void fpregs_activate(struct fpu *fpu)
 {
-	__fpregs_activate_hw();
 	__fpregs_activate(fpu);
 }
 
 static inline void fpregs_deactivate(struct fpu *fpu)
 {
 	__fpregs_deactivate(fpu);
-	__fpregs_deactivate_hw();
 }
 
 /*
@@ -591,8 +551,7 @@ switch_fpu_prepare(struct fpu *old_fpu, struct fpu *new_fpu, int cpu)
 	 * or if the past 5 consecutive context-switches used math.
 	 */
 	fpu.preload = static_cpu_has(X86_FEATURE_FPU) &&
-		      new_fpu->fpstate_active &&
-		      (use_eager_fpu() || new_fpu->counter > 5);
+		      new_fpu->fpstate_active;
 
 	if (old_fpu->fpregs_active) {
 		if (!copy_fpregs_to_fpstate(old_fpu))
@@ -605,17 +564,12 @@ switch_fpu_prepare(struct fpu *old_fpu, struct fpu *new_fpu, int cpu)
 
 		/* Don't change CR0.TS if we just switch! */
 		if (fpu.preload) {
-			new_fpu->counter++;
 			__fpregs_activate(new_fpu);
 			prefetch(&new_fpu->state);
-		} else {
-			__fpregs_deactivate_hw();
 		}
 	} else {
-		old_fpu->counter = 0;
 		old_fpu->last_cpu = -1;
 		if (fpu.preload) {
-			new_fpu->counter++;
 			if (fpu_want_lazy_restore(new_fpu, cpu))
 				fpu.preload = 0;
 			else

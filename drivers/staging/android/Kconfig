@@ -141,8 +141,6 @@ config CONFIG_MTK_DISABLE_LMK_PROMOTE_PRIORITY
 
 source "drivers/staging/android/ion/Kconfig"
 
-source "drivers/staging/android/fiq_debugger/Kconfig"
-
 endif # if ANDROID
 
 endmenu
