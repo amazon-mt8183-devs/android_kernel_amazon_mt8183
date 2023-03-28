@@ -1473,21 +1473,6 @@ struct sock *sk_alloc(struct net *net, int family, gfp_t priority,
 }
 EXPORT_SYMBOL(sk_alloc);
 
-void sk_destruct(struct sock *sk)
-{
-	bool use_call_rcu = sock_flag(sk, SOCK_RCU_FREE);
-
-	if (rcu_access_pointer(sk->sk_reuseport_cb)) {
-		reuseport_detach_sock(sk);
-		use_call_rcu = true;
-	}
-
-	if (use_call_rcu)
-		call_rcu(&sk->sk_rcu, __sk_destruct);
-	else
-		__sk_destruct(&sk->sk_rcu);
-}
-
 /* Sockets having SOCK_RCU_FREE will call this function after one RCU
  * grace period. This is the case for UDP sockets and TCP listeners.
  */
@@ -1532,6 +1517,21 @@ static void __sk_free(struct sock *sk)
 		sock_diag_broadcast_destroy(sk);
 	else
 		sk_destruct(sk);
+}
+
+void sk_destruct(struct sock *sk)
+{
+        bool use_call_rcu = sock_flag(sk, SOCK_RCU_FREE);
+
+        if (rcu_access_pointer(sk->sk_reuseport_cb)) {
+                reuseport_detach_sock(sk);
+                use_call_rcu = true;
+        }
+
+        if (use_call_rcu)
+                call_rcu(&sk->sk_rcu, __sk_destruct);
+        else
+                __sk_destruct(&sk->sk_rcu);
 }
 
 void sk_free(struct sock *sk)
