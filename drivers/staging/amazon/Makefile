@@ -6,3 +6,4 @@ subdir-ccflags-y += -Werror -I$(srctree)/drivers/misc/mediatek/usb_c/tcpc/inc
 
 obj-$(CONFIG_AMAZON_LD) += amzn_ld.o
 obj-$(CONFIG_AMAZON_METRICS_STUB) += amzn_metrics_stub.o
+obj-$(CONFIG_AMAZON_DSP_FRAMEWORK) += dspframework/
