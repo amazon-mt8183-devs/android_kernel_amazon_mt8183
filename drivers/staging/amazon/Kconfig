@@ -30,13 +30,13 @@ config AMAZON_METRICS_STUB
 
 	  If unsure, say N.
 
-source "drivers/staging/amazon/dspframework/Kconfig"
-
 config USER_BUILD
 	bool "Indicate if user build"
 	default n
 	---help---
 	  Indicate if user build
+
+source "drivers/staging/amazon/dspframework/Kconfig"
 
 endif # if AMAZON
 
