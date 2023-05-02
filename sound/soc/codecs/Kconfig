@@ -585,6 +585,7 @@ config SND_SOC_RT5677_SPI
 config SND_SOC_RT551X
 	tristate "SND_SOC_RT551X"
 	default y if SND_SOC_RT551X_SPI=y
+	depends on !AMAZON_DSP_FRAMEWORK
 
 config SND_SOC_RT551X_ADF
         tristate "SND_SOC_RT551X_ADF"
@@ -593,7 +594,7 @@ config SND_SOC_RT551X_ADF
 
 config SND_SOC_RT551X_SPI
 	tristate "SND_SOC_RT551X_SPI"
-	depends on SPI_MASTER
+	depends on SPI_MASTER && !AMAZON_DSP_FRAMEWORK
 
 config SND_SOC_RT551X_ADF_SPI
         tristate "SND_SOC_RT551X_ADF_SPI"
