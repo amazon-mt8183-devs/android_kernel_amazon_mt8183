@@ -97,6 +97,7 @@ config SND_SOC_ALL_CODECS
 	select SND_SOC_RT5670 if I2C
 	select SND_SOC_RT5677 if I2C && SPI_MASTER
 	select SND_SOC_RT551X if I2C
+	select SND_SOC_RT551X_ADF if I2C
 	select SND_SOC_RT551X_SPI if SPI_MASTER
 	select SND_SOC_SGTL5000 if I2C
 	select SND_SOC_SI476X if MFD_SI476X_CORE
@@ -585,9 +586,18 @@ config SND_SOC_RT551X
 	tristate "SND_SOC_RT551X"
 	default y if SND_SOC_RT551X_SPI=y
 
+config SND_SOC_RT551X_ADF
+        tristate "SND_SOC_RT551X_ADF"
+        default y if SND_SOC_RT551X_ADF_SPI=y
+	depends on AMAZON_DSP_FRAMEWORK
+
 config SND_SOC_RT551X_SPI
 	tristate "SND_SOC_RT551X_SPI"
 	depends on SPI_MASTER
+
+config SND_SOC_RT551X_ADF_SPI
+        tristate "SND_SOC_RT551X_ADF_SPI"
+        depends on SPI_MASTER && AMAZON_DSP_FRAMEWORK
 
 config AMAZON_DSP_FRAMEWORK
 	tristate "adf support"
