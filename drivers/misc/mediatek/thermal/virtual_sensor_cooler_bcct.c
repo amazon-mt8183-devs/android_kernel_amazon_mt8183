@@ -15,7 +15,7 @@
 #include <linux/thermal_framework.h>
 
 #include "mt-plat/mtk_thermal_monitor.h"
-#include <mt-plat/battery_common.h>
+#include <mt-plat/battery_common_maverick.h>
 
 #define DRIVER_NAME "battery_current_cooler"
 

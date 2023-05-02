@@ -42,7 +42,7 @@
 #include <mtk_battery_internal.h>
 #else
 #include <mt-plat/battery_meter.h>
-#include <mt-plat/battery_common.h>
+#include <mt-plat/battery_common_maverick.h>
 #include <mach/mtk_battery_meter.h>
 #endif
 #endif

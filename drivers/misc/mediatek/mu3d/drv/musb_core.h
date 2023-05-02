@@ -44,7 +44,7 @@
 #include <linux/usb/musb.h>
 #include <linux/wakelock.h>
 #include <linux/workqueue.h>
-/*#include <mt-plat/battery_common.h>*/
+/*#include <mt-plat/battery_common_maverick.h>*/
 #if (CONFIG_MTK_GAUGE_VERSION != 30)
 #include <mt-plat/charging.h>
 #endif
