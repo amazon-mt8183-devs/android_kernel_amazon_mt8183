@@ -98,7 +98,7 @@
 #include <linux/debugfs.h>
 #include "mtk-soc-codec-63xx.h"
 #include "mtk-soc-speaker-amp.h"
-#include "mav-machine.h"
+#include "amzn-mt8183-machine.h"
 
 #include "mtk-hw-component.h"
 #if defined(CONFIG_SND_SOC_CS43130)
@@ -107,7 +107,7 @@
 #if defined(CONFIG_SND_SOC_CS35L35)
 #include "mtk-cs35l35-machine-ops.h"
 #endif
-#ifdef CONFIG_SND_SOC_RT551X
+#if defined(CONFIG_SND_SOC_RT551X) || defined(CONFIG_SND_SOC_RT551X_ADF)
 #include "../../codecs/rt551x.h"
 static const struct of_device_id mt_audio_driver_dt_match[];
 
@@ -594,7 +594,7 @@ static struct snd_soc_dai_link mt_soc_dai_common[] = {
 		.codec_dai_name = MT_SOC_CODEC_FMMRGTXDAI_DUMMY_DAI_NAME,
 		.codec_name = MT_SOC_CODEC_DUMMY_NAME,
 	},
-#ifdef CONFIG_SND_SOC_RT551X
+#if defined(CONFIG_SND_SOC_RT551X) || defined(CONFIG_SND_SOC_RT551X_ADF)
 	{
 		.name = "MultiMedia3",
 		.stream_name = MT_SOC_UL1DATA2_STREAM_NAME,
@@ -800,7 +800,7 @@ static struct snd_soc_dai_link mt_soc_dai_common[] = {
 		.codec_name = MT_SOC_CODEC_DUMMY_NAME,
 	},
 #endif
-#ifdef CONFIG_SND_SOC_RT551X
+#if defined(CONFIG_SND_SOC_RT551X) || defined(CONFIG_SND_SOC_RT551X_ADF)
 	{
 		.name = "RT551X DSP",
 		.stream_name = "DSP_Capture",
@@ -936,7 +936,7 @@ static int mt_soc_snd_init(struct platform_device *pdev)
 	struct snd_soc_card *card = &mt_snd_soc_card_mt;
 	int ret;
 	int daiLinkNum = 0;
-#ifdef CONFIG_SND_SOC_RT551X
+#if defined(CONFIG_SND_SOC_RT551X) || defined(CONFIG_SND_SOC_RT551X_ADF)
 	struct device_node *node = NULL;
 #endif
 
@@ -947,7 +947,7 @@ static int mt_soc_snd_init(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
-#ifdef CONFIG_SND_SOC_RT551X
+#if defined(CONFIG_SND_SOC_RT551X) || defined(CONFIG_SND_SOC_RT551X_ADF)
 	node = of_find_matching_node(node, mt_audio_driver_dt_match);
 	if (node)
 		rt551x_codecs[0].of_node = of_parse_phandle(node, "sound-dai", 0);
